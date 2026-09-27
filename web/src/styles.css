@@ -70,3 +70,78 @@ dd {
   margin: 0;
   font-weight: 600;
 }
+
+h1 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+h2 {
+  margin: 0 0 1rem;
+  font-size: 1.6rem;
+}
+
+a {
+  color: #1c140c;
+}
+
+form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #c8b79a;
+  background: #fff;
+}
+
+.checkbox {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  font-weight: 500;
+}
+
+.notice {
+  margin: 0;
+  line-height: 1.45;
+}
+
+button {
+  font: inherit;
+  width: fit-content;
+  padding: 0.6rem 1rem;
+  background: #1c140c;
+  color: #f7f1e6;
+  border: 0;
+  cursor: pointer;
+}
+
+button.danger {
+  background: #6e2b2b;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.error {
+  margin: 0;
+  color: #6e2b2b;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+}

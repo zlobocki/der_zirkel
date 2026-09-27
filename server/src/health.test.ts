@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import type { Database } from "./db.js";
 
+const sessionSecret = "test-session-secret";
+
 function fakeDb(up: boolean): Database {
   return {
+    sql: null,
     async ping() {
       return up;
     },
@@ -19,7 +22,7 @@ describe("GET /api/health", () => {
   });
 
   it("reports the database as up", async () => {
-    const app = await buildApp({ db: fakeDb(true) });
+    const app = await buildApp({ db: fakeDb(true), sessionSecret, logger: false });
     apps.push(app);
 
     const response = await app.inject({ method: "GET", url: "/api/health" });
@@ -33,7 +36,7 @@ describe("GET /api/health", () => {
   });
 
   it("reports the database as down when Postgres cannot be reached", async () => {
-    const app = await buildApp({ db: fakeDb(false) });
+    const app = await buildApp({ db: fakeDb(false), sessionSecret, logger: false });
     apps.push(app);
 
     const response = await app.inject({ method: "GET", url: "/api/health" });

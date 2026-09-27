@@ -1,6 +1,7 @@
 import postgres from "postgres";
 
 export type Database = {
+  sql: postgres.Sql | null;
   ping: () => Promise<boolean>;
   close: () => Promise<void>;
 };
@@ -8,6 +9,7 @@ export type Database = {
 export function createDb(databaseUrl: string | undefined): Database {
   if (!databaseUrl) {
     return {
+      sql: null,
       async ping() {
         return false;
       },
@@ -16,12 +18,13 @@ export function createDb(databaseUrl: string | undefined): Database {
   }
 
   const sql = postgres(databaseUrl, {
-    max: 2,
+    max: 10,
     connect_timeout: 5,
     idle_timeout: 20,
   });
 
   return {
+    sql,
     async ping() {
       try {
         await sql`select 1 as ok`;

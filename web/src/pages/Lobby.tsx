@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { rememberGame } from "../open-games";
 import {
   ApiError,
   cancelGame,
@@ -58,6 +59,7 @@ export function Lobby() {
     setCreating(true);
     try {
       const result = await createGame({ name, password, humanSeats, aiSeats });
+      rememberGame(result.game.id);
       setName("");
       setPassword("");
       setEntered(result.game);
@@ -206,7 +208,7 @@ function GameRoom({
       <p className="notice">
         {waiting
           ? `Waiting for players. ${game.seatedHumans} of ${game.humanSeats} people are seated.`
-          : "This game has started. The board opens in the next step. The seats stay as they are."}
+          : "This game has started. The seats stay as they are."}
       </p>
       <ol className="seat-list">
         {game.seats.map((seat) => (
@@ -220,6 +222,7 @@ function GameRoom({
         <button type="button" className="quiet" onClick={onBack}>
           Back to the lobby
         </button>
+        {waiting ? null : <Link to={`/play/${game.id}`}>Open the board</Link>}
         {waiting && game.createdByYou ? (
           <button type="button" className="danger" onClick={onCancel}>
             Cancel game
@@ -254,6 +257,7 @@ function GameEntry({
     setPending(true);
     try {
       const result = await joinGame(game.id, password);
+      rememberGame(result.game.id);
       setPassword("");
       onEntered(result.game);
     } catch (caught) {

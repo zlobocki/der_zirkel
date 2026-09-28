@@ -142,3 +142,29 @@ export function leaveGame(id: string): Promise<{ ok: boolean }> {
 export function cancelGame(id: string): Promise<{ ok: boolean }> {
   return request(`/api/games/${id}/cancel`, { method: "POST" });
 }
+
+export type BoardView = {
+  nations: Array<{
+    id: string;
+    score: number;
+    tax: string;
+    rondel: string;
+    factories: Array<{ region: string; kind: "land" | "sea" }>;
+  }>;
+  players: Array<{
+    seat: number;
+    kind: "human" | "ai";
+    username: string | null;
+    you: boolean;
+    bonds: Array<{ nation: string; interest: number }>;
+    investor: boolean;
+    swissBank: boolean;
+    cash: number | null;
+  }>;
+};
+
+export type SeatedGame = LobbyGame & { board: BoardView | null };
+
+export function fetchGame(id: string): Promise<{ game: SeatedGame }> {
+  return request(`/api/games/${id}`);
+}

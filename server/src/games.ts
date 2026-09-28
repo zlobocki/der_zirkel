@@ -106,7 +106,40 @@ function publicSeats(game: Pick<GameRow, "human_seats" | "ai_seats">, players: P
   return seats;
 }
 
-function storedState(game: Pick<GameRow, "human_seats" | "ai_seats" | "status">, players: PlayerRow[]) {
+type BoardPlayer = {
+  seat: number;
+  kind: "human" | "ai";
+  userId: string | null;
+  username: string | null;
+  cash: number;
+  bonds: [];
+  investor: boolean;
+  swissBank: boolean;
+};
+
+type BoardState = {
+  nations: Array<{
+    id: string;
+    score: number;
+    tax: string;
+    rondel: string;
+    factories: Array<{ region: string; kind: "land" | "sea" }>;
+  }>;
+  players: BoardPlayer[];
+};
+
+const STARTING_CASH: Record<number, number> = { 1: 40, 2: 40, 3: 28, 4: 22, 5: 18, 6: 15 };
+
+const NATIONS: BoardState["nations"] = [
+  { id: "ah", score: 0, tax: "tax_2-5", rondel: "Rondelcenter", factories: [{ region: "LR14", kind: "land" }, { region: "LR16", kind: "land" }] },
+  { id: "ita", score: 0, tax: "tax_2-5", rondel: "Rondelcenter", factories: [{ region: "LR44", kind: "land" }, { region: "LR45", kind: "sea" }] },
+  { id: "fra", score: 0, tax: "tax_2-5", rondel: "Rondelcenter", factories: [{ region: "LR3", kind: "sea" }, { region: "LR7", kind: "land" }] },
+  { id: "uk", score: 0, tax: "tax_2-5", rondel: "Rondelcenter", factories: [{ region: "LR36", kind: "sea" }, { region: "LR37", kind: "sea" }] },
+  { id: "ger", score: 0, tax: "tax_2-5", rondel: "Rondelcenter", factories: [{ region: "LR11", kind: "sea" }, { region: "LR12", kind: "land" }] },
+  { id: "rus", score: 0, tax: "tax_2-5", rondel: "Rondelcenter", factories: [{ region: "LR21", kind: "land" }, { region: "LR24", kind: "sea" }] },
+];
+
+function seatList(game: Pick<GameRow, "human_seats" | "ai_seats">, players: PlayerRow[]): StoredSeat[] {
   const bySeat = new Map(players.map((player) => [player.seat_index, player]));
   const seats: StoredSeat[] = [];
   for (let seat = 0; seat < game.human_seats; seat += 1) {
@@ -126,7 +159,40 @@ function storedState(game: Pick<GameRow, "human_seats" | "ai_seats" | "status">,
       username: `AI ${index + 1}`,
     });
   }
-  return { phase: game.status, seats };
+  return seats;
+}
+
+function openingBoard(game: Pick<GameRow, "human_seats" | "ai_seats">, players: PlayerRow[]): BoardState {
+  const cash = STARTING_CASH[game.human_seats + game.ai_seats] ?? 40;
+  return {
+    nations: NATIONS.map((nation) => ({ ...nation, factories: nation.factories.map((factory) => ({ ...factory })) })),
+    players: seatList(game, players).map((seat) => ({
+      ...seat,
+      cash,
+      bonds: [],
+      investor: false,
+      swissBank: false,
+    })),
+  };
+}
+
+function boardForViewer(board: BoardState | null, userId: string) {
+  if (!board) {
+    return null;
+  }
+  return {
+    nations: board.nations,
+    players: board.players.map((player) => ({
+      seat: player.seat,
+      kind: player.kind,
+      username: player.username,
+      you: player.userId === userId,
+      bonds: player.bonds,
+      investor: player.investor,
+      swissBank: player.swissBank,
+      cash: player.userId === userId ? player.cash : null,
+    })),
+  };
 }
 
 function summarize(game: GameRow, players: PlayerRow[], userId: string) {
@@ -174,9 +240,14 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
   }
 
   async function saveState(query: postgres.TransactionSql, game: GameRow, players: PlayerRow[]): Promise<void> {
+    const existing = await query<{ state: { board?: BoardState | null } }[]>`
+      select state from games where id = ${game.id}::uuid
+    `;
+    const previous = existing[0]?.state?.board ?? null;
+    const board = game.status === "playing" ? (previous ?? openingBoard(game, players)) : null;
     await query`
       update games
-      set state = ${query.json(storedState(game, players))}
+      set state = ${query.json({ phase: game.status, seats: seatList(game, players), board })}
       where id = ${game.id}::uuid
     `;
   }
@@ -240,6 +311,48 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
       yours: games.filter((game) => game.yourSeat !== null),
       open: games.filter((game) => game.status === "waiting" && game.yourSeat === null),
     };
+  });
+
+  app.get("/api/games/:id", async (request, reply) => {
+    const user = await requireUser(request, reply);
+    if (!user || !sql) {
+      return;
+    }
+    const id = idSchema.safeParse((request.params as { id?: string }).id);
+    if (!id.success) {
+      return reply.code(404).send({ error: "That game does not exist." });
+    }
+    const rows = await sql<Array<GameRow & { state: { board?: BoardState | null } }>>`
+      select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state
+      from games g
+      left join users u on u.id = g.created_by
+      where g.id = ${id.data}::uuid
+    `;
+    const game = rows[0];
+    if (!game?.name || game.status === "cancelled" || game.status === "finished") {
+      return reply.code(404).send({ error: "That game does not exist." });
+    }
+    const players = await sql<PlayerRow[]>`
+      select gp.game_id, gp.user_id, gp.seat_index, u.username
+      from game_players gp
+      join users u on u.id = gp.user_id
+      where gp.game_id = ${game.id}::uuid
+      order by gp.seat_index asc
+    `;
+    const seated = players.some((player) => player.user_id === user.id);
+    if (game.status === "playing" && !seated) {
+      return reply.code(403).send({ error: "You are not seated at this game." });
+    }
+    let board = game.state?.board ?? null;
+    if (game.status === "playing" && !board) {
+      board = openingBoard(game, players);
+      await sql`
+        update games
+        set state = ${sql.json({ phase: game.status, seats: seatList(game, players), board })}
+        where id = ${game.id}::uuid
+      `;
+    }
+    return { game: { ...summarize({ ...game, password_hash: null }, players, user.id), board: boardForViewer(board, user.id) } };
   });
 
   app.post("/api/games", async (request, reply) => {

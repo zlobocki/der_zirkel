@@ -91,11 +91,25 @@ describe("lobby", () => {
     ]);
     expect(JSON.stringify(created.json())).not.toContain("scrypt$");
 
-    const stored = await sql<{ state: { phase: string; seats: Array<{ userId: string | null }> } }[]>`
+    const stored = await sql<{
+      state: {
+        phase: string;
+        seats: Array<{ userId: string | null }>;
+        board: {
+          players: Array<{ cash: number }>;
+          nations: Array<{ id: string; factories: Array<{ region: string; kind: string }> }>;
+        };
+      };
+    }[]>`
       select state from games where id = ${created.json().game.id}::uuid
     `;
     expect(stored[0]?.state.phase).toBe("playing");
     expect(stored[0]?.state.seats.map((seat) => seat.userId)).toEqual([ada.id, null, null]);
+    expect(stored[0]?.state.board.players[0]?.cash).toBe(28);
+    expect(stored[0]?.state.board.nations.find((nation) => nation.id === "ah")?.factories).toEqual([
+      { region: "LR14", kind: "land" },
+      { region: "LR16", kind: "land" },
+    ]);
   });
 
   it("starts when the last person joins, then only those players can enter", async () => {
@@ -157,6 +171,19 @@ describe("lobby", () => {
     const hidden = await app.inject({ method: "GET", url: "/api/games", headers: { cookie: cy.cookie } });
     expect(hidden.json().yours).toEqual([]);
     expect(hidden.json().open).toEqual([]);
+
+    const asBea = await app.inject({ method: "GET", url: `/api/games/${gameId}`, headers: { cookie: bea.cookie } });
+    expect(asBea.statusCode).toBe(200);
+    const beaPlayers = asBea.json().game.board.players as Array<{ you: boolean; cash: number | null; kind: string }>;
+    expect(beaPlayers.find((player) => player.you)?.cash).toBe(28);
+    expect(beaPlayers.filter((player) => !player.you).every((player) => player.cash === null)).toBe(true);
+
+    const outsiderView = await app.inject({
+      method: "GET",
+      url: `/api/games/${gameId}`,
+      headers: { cookie: cy.cookie },
+    });
+    expect(outsiderView.statusCode).toBe(403);
   });
 
   it("lets the creator cancel a game that is still waiting", async () => {

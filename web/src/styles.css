@@ -1,7 +1,15 @@
+@font-face {
+  font-family: "Germania One";
+  src: url("/fonts/GermaniaOne.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  color: #1c140c;
-  background: #efe4d2;
-  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  color: #2b140c;
+  background: #c4a574;
+  font-family: "Palatino Linotype", Palatino, Georgia, serif;
 }
 
 * {
@@ -10,18 +18,39 @@
 
 body {
   margin: 0;
+  min-height: 100vh;
+  background-color: #c4a574;
+  background-image: url("/art/background.png");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
 }
 
 main {
   max-width: 40rem;
   margin: 0 auto;
-  padding: 4rem 1.5rem;
+  padding: 3rem 1.5rem 4rem;
+}
+
+main.board-page {
+  max-width: 78rem;
+}
+
+h1,
+h2,
+h3,
+button,
+label,
+dt {
+  font-family: "Germania One", "Palatino Linotype", Palatino, serif;
+  font-weight: 400;
 }
 
 h1 {
   margin: 0;
-  font-size: 3rem;
-  font-weight: 600;
+  font-size: 3.2rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 .lede {
@@ -30,15 +59,26 @@ h1 {
 }
 
 .card {
-  margin-top: 2rem;
+  margin-top: 1.5rem;
   padding: 1.25rem 1.5rem;
-  background: #f7f1e6;
-  border: 1px solid #c8b79a;
+  background: #5c1418;
+  color: #f8efd8;
+  border: 1px solid #e4c27a;
 }
 
-.card h2 {
-  margin: 0 0 1rem;
-  font-size: 1.3rem;
+.card h2,
+.player-panel h3 {
+  margin: 0 0 0.8rem;
+  font-size: 1.7rem;
+}
+
+.player-panel h3 {
+  margin-top: 1rem;
+  font-size: 1.35rem;
+}
+
+.player-panel li:first-child h3 {
+  margin-top: 0;
 }
 
 dl {
@@ -51,12 +91,13 @@ dl div {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  border-top: 1px solid #e2d5c0;
+  border-top: 1px solid rgba(248, 239, 216, 0.28);
   padding-top: 0.75rem;
 }
 
 dt {
-  color: #6d5b45;
+  color: #f0d7a4;
+  font-size: 1.15rem;
 }
 
 dd {
@@ -70,12 +111,16 @@ h1 a {
 }
 
 h2 {
-  margin: 0 0 1rem;
-  font-size: 1.6rem;
+  margin: 1.4rem 0 0.6rem;
+  font-size: 2rem;
 }
 
 a {
-  color: #1c140c;
+  color: #2b140c;
+}
+
+.card a {
+  color: #f8efd8;
 }
 
 form {
@@ -86,24 +131,27 @@ form {
 label {
   display: grid;
   gap: 0.35rem;
-  font-weight: 600;
+  font-size: 1.25rem;
 }
 
 input[type="text"],
 input[type="email"],
 input[type="password"],
 input[type="number"] {
-  font: inherit;
+  font-family: "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 1rem;
   padding: 0.55rem 0.65rem;
-  border: 1px solid #c8b79a;
-  background: #fff;
+  border: 1px solid #e4c27a;
+  background: #f6efe2;
+  color: #2b140c;
 }
 
 .checkbox {
   display: flex;
   gap: 0.65rem;
   align-items: flex-start;
-  font-weight: 500;
+  font-weight: 400;
+  font-size: 1.05rem;
 }
 
 .notice {
@@ -112,17 +160,17 @@ input[type="number"] {
 }
 
 button {
-  font: inherit;
+  font-size: 1.2rem;
   width: fit-content;
-  padding: 0.6rem 1rem;
-  background: #1c140c;
-  color: #f7f1e6;
-  border: 0;
+  padding: 0.55rem 1rem;
+  background: #2a0c0c;
+  color: #f8efd8;
+  border: 1px solid #e4c27a;
   cursor: pointer;
 }
 
 button.danger {
-  background: #6e2b2b;
+  background: #8e1f28;
 }
 
 button:disabled {
@@ -132,7 +180,11 @@ button:disabled {
 
 .error {
   margin: 0;
-  color: #6e2b2b;
+  color: #6e1218;
+}
+
+.card .error {
+  color: #ffd0c4;
 }
 
 .actions {
@@ -169,12 +221,74 @@ button:disabled {
 .row-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.75rem;
+  align-items: center;
   margin-top: 0.8rem;
 }
 
 button.quiet {
   background: transparent;
-  color: #1c140c;
-  border: 1px solid #c8b79a;
+  color: #f8efd8;
+  border: 1px solid #e4c27a;
+}
+
+.play-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18rem;
+  gap: 1rem;
+  align-items: start;
+}
+
+.board-frame {
+  position: relative;
+  background: #1c120c;
+  border: 1px solid #e4c27a;
+}
+
+.board-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.piece {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+.factory-piece {
+  width: 3.1%;
+}
+
+.marker-piece {
+  width: 1.05%;
+}
+
+.factory-piece img,
+.marker {
+  display: block;
+  width: 100%;
+}
+
+.marker {
+  aspect-ratio: 1;
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+
+.panel-icon {
+  display: block;
+  height: 2.4rem;
+  width: auto;
+  margin-left: auto;
+}
+
+@media (max-width: 800px) {
+  .play-layout {
+    grid-template-columns: 1fr;
+  }
+
+  h1 {
+    font-size: 2.5rem;
+  }
 }

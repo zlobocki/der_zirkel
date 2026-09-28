@@ -259,6 +259,38 @@ describe("lobby", () => {
     expect(tooLate.statusCode).toBe(409);
   });
 
+  it("lets the first player pass a bond and then the automatic players buy", async () => {
+    const ada = await register("Ada", "ada@example.com");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      headers: { cookie: ada.cookie },
+      payload: { name: "Bond Table", password: "open-sesame", humanSeats: 1, aiSeats: 2 },
+    });
+    const gameId = created.json().game.id as string;
+    const opened = await app.inject({ method: "GET", url: `/api/games/${gameId}`, headers: { cookie: ada.cookie } });
+    expect(opened.json().game.board.draft).toMatchObject({ nationId: "ah", yours: true });
+
+    const passed = await app.inject({
+      method: "POST",
+      url: `/api/games/${gameId}/draft`,
+      headers: { cookie: ada.cookie },
+      payload: { interest: null },
+    });
+    expect(passed.statusCode).toBe(200);
+    expect(passed.json().game.board.draft).toMatchObject({ nationId: "ita", yours: true });
+    expect(passed.json().game.board.players.find((player: { you: boolean }) => player.you).cash).toBe(28);
+    expect(passed.json().game.board.nations.find((nation: { id: string }) => nation.id === "ah").treasury).toBe(6);
+
+    const early = await app.inject({
+      method: "POST",
+      url: `/api/games/${gameId}/draft`,
+      headers: { cookie: ada.cookie },
+      payload: { interest: 9 },
+    });
+    expect(early.statusCode).toBe(409);
+  });
+
   it("rejects an impossible seat count and a duplicate open name", async () => {
     const ada = await register("Ada", "ada@example.com");
     const tooMany = await app.inject({

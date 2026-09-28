@@ -5987,17 +5987,15 @@
        id="path4695"
        cx="70.153328"
        cy="29.072065"
-       r="4.5166397" /><circle
-       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0;stroke-dasharray:none"
+       r="4.5166397" /><path
+       style="fill:none;stroke:none"
        id="path23149"
-       cx="70.153328"
-       cy="29.072065"
-       r="20.478748" /><text
+       d="M 70.153328,8.593317 a 20.478748,20.478748 0 1 1 -0.01,0" /><text
        xml:space="preserve"
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:2.82223px;font-family:'Germania One';-inkscape-font-specification:'Germania One';text-align:center;text-anchor:middle;fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:0.264583;stroke-dasharray:none"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:2.82223px;font-family:'Germania One', Arial, sans-serif;-inkscape-font-specification:'Germania One';text-align:center;text-anchor:middle;fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:0.264583;stroke-dasharray:none"
        id="text23153"
        transform="rotate(45,70.206032,29.14523)"><textPath
-         xlink:href="#path23149"
+         href="#path23149" xlink:href="#path23149"
          startOffset="50%"
          id="textPath25333"><tspan
            id="tspan23151"

@@ -27,4 +27,5 @@ execFileSync(
 for (const file of publicFiles) {
   execFileSync("cp", [path.join(source, file), path.join(destination, path.basename(file))]);
 }
+execFileSync("python3", [path.join(root, "scripts/patch-rondel.py")], { stdio: "inherit" });
 execFileSync("python3", [path.join(root, "scripts/extract_slots.py")], { stdio: "inherit" });

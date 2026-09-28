@@ -7,7 +7,7 @@
 }
 
 :root {
-  color: #2b140c;
+  color: #f8efd8;
   background: #c4a574;
   font-family: "Palatino Linotype", Palatino, Georgia, serif;
 }
@@ -116,7 +116,7 @@ h2 {
 }
 
 a {
-  color: #2b140c;
+  color: #f8efd8;
 }
 
 .card a {
@@ -180,7 +180,7 @@ button:disabled {
 
 .error {
   margin: 0;
-  color: #6e1218;
+  color: #ffe1d6;
 }
 
 .card .error {
@@ -239,10 +239,41 @@ button.quiet {
   align-items: start;
 }
 
+.board-window {
+  position: relative;
+  height: min(72vh, 740px);
+  overflow: hidden;
+  background: #140e0b;
+  border: 1px solid #e4c27a;
+  touch-action: none;
+  cursor: grab;
+}
+
+.board-window:active {
+  cursor: grabbing;
+}
+
+.board-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.board-zoom {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
 .board-frame {
   position: relative;
   background: #1c120c;
-  border: 1px solid #e4c27a;
 }
 
 .board-image {

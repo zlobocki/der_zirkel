@@ -37,4 +37,21 @@ export async function migrate(sql: postgres.Sql): Promise<void> {
       primary key (game_id, user_id)
     )
   `;
+  await sql`alter table games add column if not exists name text`;
+  await sql`alter table games add column if not exists name_normalized text`;
+  await sql`alter table games add column if not exists password_hash text`;
+  await sql`alter table games add column if not exists human_seats smallint`;
+  await sql`alter table games add column if not exists ai_seats smallint`;
+  await sql`alter table games add column if not exists created_by uuid references users (id) on delete set null`;
+  await sql`alter table games add column if not exists state jsonb not null default '{}'::jsonb`;
+  await sql`alter table game_players add column if not exists seat_index smallint`;
+  await sql`
+    create unique index if not exists games_active_name
+    on games (name_normalized)
+    where status in ('waiting', 'playing')
+  `;
+  await sql`
+    create unique index if not exists game_players_seat
+    on game_players (game_id, seat_index)
+  `;
 }

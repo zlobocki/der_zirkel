@@ -97,3 +97,48 @@ export function resetAccountPassword(id: string, password: string): Promise<{ ok
 export function deleteManagedAccount(id: string): Promise<{ ok: boolean }> {
   return request(`/api/admin/users/${id}`, { method: "DELETE" });
 }
+
+export type GameSeat = {
+  seat: number;
+  kind: "human" | "ai";
+  username: string | null;
+  you: boolean;
+};
+
+export type LobbyGame = {
+  id: string;
+  name: string;
+  status: "waiting" | "playing";
+  humanSeats: number;
+  aiSeats: number;
+  seatedHumans: number;
+  yourSeat: number | null;
+  creator: string | null;
+  createdByYou: boolean;
+  seats: GameSeat[];
+};
+
+export function fetchGames(): Promise<{ yours: LobbyGame[]; open: LobbyGame[] }> {
+  return request("/api/games");
+}
+
+export function createGame(input: {
+  name: string;
+  password: string;
+  humanSeats: number;
+  aiSeats: number;
+}): Promise<{ game: LobbyGame }> {
+  return request("/api/games", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function joinGame(id: string, password: string): Promise<{ game: LobbyGame }> {
+  return request(`/api/games/${id}/join`, { method: "POST", body: JSON.stringify({ password }) });
+}
+
+export function leaveGame(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/games/${id}/leave`, { method: "POST" });
+}
+
+export function cancelGame(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/games/${id}/cancel`, { method: "POST" });
+}

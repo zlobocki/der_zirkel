@@ -6,6 +6,7 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerAdminRoutes } from "./admin.js";
 import { registerAuthRoutes } from "./auth.js";
+import { registerGameRoutes } from "./games.js";
 import type { Database } from "./db.js";
 
 export type AppOptions = {
@@ -71,6 +72,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   registerAdminRoutes(app, {
+    sql: options.db.sql,
+    sessionSecret: options.sessionSecret,
+    secureCookies: options.secureCookies ?? false,
+  });
+
+  registerGameRoutes(app, {
     sql: options.db.sql,
     sessionSecret: options.sessionSecret,
     secureCookies: options.secureCookies ?? false,

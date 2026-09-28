@@ -3,6 +3,7 @@ import { AuthProvider } from "./auth-context";
 import { Account } from "./pages/Account";
 import { Admin } from "./pages/Admin";
 import { Home } from "./pages/Home";
+import { Lobby } from "./pages/Lobby";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 
@@ -26,6 +27,7 @@ function Shell() {
         <Route path="/login" element={<Login />} />
         <Route path="/account" element={<Account />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/lobby" element={<Lobby />} />
       </Routes>
     </main>
   );

@@ -26,13 +26,12 @@ export function Home() {
 
   return (
     <>
-      <p className="lede">
-        Create an account to play. The lobby is not open yet.
-      </p>
+      <p className="lede">{user ? "Choose a game in the lobby." : "Create an account to play."}</p>
       <section className="card">
         <h2>{loading ? "Checking your session" : user ? `Signed in as ${user.username}` : "Not signed in"}</h2>
         {user ? (
           <p className="actions">
+            <Link to="/lobby">Lobby</Link>
             <Link to="/account">Account settings</Link>
             {user.isAdmin ? <Link to="/admin">Accounts</Link> : null}
           </p>

@@ -91,7 +91,8 @@ label {
 
 input[type="text"],
 input[type="email"],
-input[type="password"] {
+input[type="password"],
+input[type="number"] {
   font: inherit;
   padding: 0.55rem 0.65rem;
   border: 1px solid #c8b79a;
@@ -144,6 +145,12 @@ button:disabled {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+.seat-list {
+  margin: 1rem 0 0;
+  padding-left: 1.2rem;
+  line-height: 1.6;
 }
 
 .inline-form {

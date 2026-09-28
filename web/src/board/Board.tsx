@@ -157,7 +157,7 @@ export function Board({ board }: { board: BoardView }) {
         }}
       >
         <div className="board-frame">
-          <img className="board-image" src="/art/game_board.svg" alt="The board" />
+          <img className="board-image" src="/art/game_board_v2.svg" alt="The board" />
           {board.nations.flatMap((nation) => {
             const meta = NATIONS.find((item) => item.id === nation.id);
             const name = meta?.name ?? nation.id;

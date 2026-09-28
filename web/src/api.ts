@@ -149,6 +149,8 @@ export type BoardView = {
     score: number;
     tax: string;
     rondel: string;
+    treasury: number;
+    government: number | null;
     factories: Array<{ region: string; kind: "land" | "sea" }>;
   }>;
   players: Array<{
@@ -156,14 +158,24 @@ export type BoardView = {
     kind: "human" | "ai";
     username: string | null;
     you: boolean;
-    bonds: Array<{ nation: string; interest: number }>;
+    bonds: Array<{ nation: string; interest: number; price: number }>;
     investor: boolean;
     swissBank: boolean;
     cash: number | null;
   }>;
+  draft: {
+    nationId: string;
+    seat: number;
+    yours: boolean;
+    choices: Array<{ interest: number; price: number }>;
+  } | null;
 };
 
 export type SeatedGame = LobbyGame & { board: BoardView | null };
+
+export function grantBond(id: string, interest: number | null): Promise<{ game: SeatedGame }> {
+  return request(`/api/games/${id}/draft`, { method: "POST", body: JSON.stringify({ interest }) });
+}
 
 export function fetchGame(id: string): Promise<{ game: SeatedGame }> {
   return request(`/api/games/${id}`);

@@ -287,8 +287,17 @@ button.quiet {
   transform: translate(-50%, -50%);
 }
 
-.factory-piece {
+.piece.map-piece {
+  transform: translate(-50%, -50%) scale(var(--map-piece-scale, 0.75));
+}
+
+.factory-piece,
+.unit-piece {
   width: 3.1%;
+}
+
+.flag-piece {
+  width: 2.6%;
 }
 
 .marker-piece {

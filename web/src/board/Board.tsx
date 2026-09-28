@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import slotsFile from "./slots.json";
 import type { BoardView } from "../api";
+import { mapPieceScale } from "./piece-scale";
 
 const VIEW_WIDTH = slotsFile.viewBox[0];
 const VIEW_HEIGHT = slotsFile.viewBox[1];
 const SLOTS = slotsFile.slots as unknown as Record<string, [number, number]>;
 
-const NATIONS = [
+export const NATIONS = [
   { id: "ah", name: "Austria-Hungary", color: "#d5bf0a" },
   { id: "ita", name: "Italy", color: "#52a63f" },
   { id: "fra", name: "France", color: "#67a8d0" },
@@ -156,7 +157,7 @@ export function Board({ board }: { board: BoardView }) {
           transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`,
         }}
       >
-        <div className="board-frame">
+        <div className="board-frame" style={{ ["--map-piece-scale" as string]: mapPieceScale(camera.scale) }}>
           <img className="board-image" src="/art/game_board_v2.svg" alt="The board" />
           {board.nations.flatMap((nation) => {
             const meta = NATIONS.find((item) => item.id === nation.id);
@@ -164,7 +165,7 @@ export function Board({ board }: { board: BoardView }) {
             return nation.factories.map((factory) => {
               const [x, y] = slot(`${factory.region}_${factory.kind}_f`);
               return (
-                <Piece key={`${nation.id}-${factory.region}`} x={x} y={y} className="factory-piece" title={`${name} ${factory.kind === "sea" ? "shipyard" : "factory"}`}>
+                <Piece key={`${nation.id}-${factory.region}`} x={x} y={y} className="map-piece factory-piece" title={`${name} ${factory.kind === "sea" ? "shipyard" : "factory"}`}>
                   <img src={factory.kind === "sea" ? "/art/factory_sea.png" : "/art/factory_land.png"} alt="" />
                 </Piece>
               );
@@ -232,7 +233,13 @@ export function PlayerPanel({ board }: { board: BoardView }) {
               </div>
               <div>
                 <dt>Bonds</dt>
-                <dd>{player.bonds.length === 0 ? "None" : player.bonds.map((bond) => `${bond.nation} ${bond.interest}`).join(", ")}</dd>
+                <dd>
+                  {player.bonds.length === 0
+                    ? "None"
+                    : player.bonds
+                        .map((bond) => `${NATIONS.find((nation) => nation.id === bond.nation)?.name ?? bond.nation} ${bond.price}`)
+                        .join(", ")}
+                </dd>
               </div>
               <div>
                 <dt>Investor</dt>
@@ -249,6 +256,28 @@ export function PlayerPanel({ board }: { board: BoardView }) {
             </dl>
           </li>
         ))}
+      </ul>
+      <h2>Nations</h2>
+      <ul className="account-list">
+        {board.nations.map((nation) => {
+          const meta = NATIONS.find((item) => item.id === nation.id);
+          const government = board.players.find((player) => player.seat === nation.government);
+          return (
+            <li key={nation.id}>
+              <h3>{meta?.name ?? nation.id}</h3>
+              <dl>
+                <div>
+                  <dt>Treasury</dt>
+                  <dd>{nation.treasury} million</dd>
+                </div>
+                <div>
+                  <dt>Government</dt>
+                  <dd>{government?.username ?? "None"}</dd>
+                </div>
+              </dl>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

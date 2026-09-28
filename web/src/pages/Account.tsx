@@ -66,6 +66,7 @@ export function Account() {
           </div>
         </dl>
         <p className="actions">
+          {user.isAdmin ? <Link to="/admin">Accounts</Link> : null}
           <button type="button" onClick={() => void onLogout()}>
             Log out
           </button>

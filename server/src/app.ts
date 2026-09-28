@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
+import { registerAdminRoutes } from "./admin.js";
 import { registerAuthRoutes } from "./auth.js";
 import type { Database } from "./db.js";
 
@@ -69,6 +70,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     secureCookies: options.secureCookies ?? false,
   });
 
+  registerAdminRoutes(app, {
+    sql: options.db.sql,
+    sessionSecret: options.sessionSecret,
+    secureCookies: options.secureCookies ?? false,
+  });
+
   if (existsSync(webDist)) {
     await app.register(fastifyStatic, {
       root: webDist,
@@ -77,7 +84,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   }
 
   app.setNotFoundHandler((request, reply) => {
-    if (request.url === "/api" || request.url.startsWith("/api/")) {
+    const pathname = request.url.split("?")[0] ?? "";
+    if (pathname === "/api" || pathname.startsWith("/api/") || pathname.includes(".")) {
       return reply.code(404).send({ error: "Not found." });
     }
     if (existsSync(path.join(webDist, "index.html"))) {

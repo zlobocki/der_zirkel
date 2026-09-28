@@ -48,4 +48,14 @@ describe("GET /api/health", () => {
       database: "down",
     });
   });
+
+  it("returns a missing asset as not found instead of the app shell", async () => {
+    const app = await buildApp({ db: fakeDb(true), sessionSecret, logger: false });
+    apps.push(app);
+
+    const missing = await app.inject({ method: "GET", url: "/assets/missing.js" });
+
+    expect(missing.statusCode).toBe(404);
+    expect(missing.body).not.toContain("<!DOCTYPE html>");
+  });
 });

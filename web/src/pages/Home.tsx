@@ -32,8 +32,9 @@ export function Home() {
       <section className="card">
         <h2>{loading ? "Checking your session" : user ? `Signed in as ${user.username}` : "Not signed in"}</h2>
         {user ? (
-          <p>
+          <p className="actions">
             <Link to="/account">Account settings</Link>
+            {user.isAdmin ? <Link to="/admin">Accounts</Link> : null}
           </p>
         ) : (
           <p className="actions">

@@ -13,7 +13,7 @@ export const PRIVACY_NOTICE =
 
 const UNFINISHED_GAME_STATUSES = ["waiting", "playing"];
 
-const usernameSchema = z
+export const usernameSchema = z
   .string()
   .trim()
   .min(3, "Username must be at least 3 characters.")
@@ -23,14 +23,14 @@ const usernameSchema = z
     "Use letters, numbers, spaces, apostrophes, or hyphens.",
   );
 
-const emailSchema = z
+export const emailSchema = z
   .string()
   .trim()
   .email("Enter a valid email address.")
   .max(254)
   .transform((value) => value.toLowerCase());
 
-const passwordSchema = z
+export const passwordSchema = z
   .string()
   .min(8, "Password must be at least 8 characters.")
   .max(128, "Password must be at most 128 characters.");
@@ -67,7 +67,7 @@ type AuthOptions = {
   secureCookies: boolean;
 };
 
-type UserRow = {
+export type SessionUser = {
   id: string;
   username: string;
   email: string;
@@ -96,7 +96,7 @@ function cookieBase(secure: boolean) {
   };
 }
 
-function publicUser(row: Pick<UserRow, "id" | "username" | "email" | "is_admin">): PublicUser {
+function publicUser(row: Pick<SessionUser, "id" | "username" | "email" | "is_admin">): PublicUser {
   return {
     id: row.id,
     username: row.username,
@@ -105,7 +105,7 @@ function publicUser(row: Pick<UserRow, "id" | "username" | "email" | "is_admin">
   };
 }
 
-function fieldError(error: z.ZodError): { error: string; field?: string } {
+export function fieldError(error: z.ZodError): { error: string; field?: string } {
   const issue = error.issues[0];
   return {
     error: issue?.message ?? "Check the form and try again.",
@@ -122,16 +122,51 @@ function isUniqueViolation(error: unknown): error is { code: string; constraint_
   );
 }
 
+export async function hasUnfinishedGame(sql: postgres.Sql, userId: string): Promise<boolean> {
+  const unfinished = await sql<{ id: string }[]>`
+    select g.id
+    from game_players gp
+    join games g on g.id = gp.game_id
+    where gp.user_id = ${userId}::uuid
+      and g.status in ${sql(UNFINISHED_GAME_STATUSES)}
+    limit 1
+  `;
+  return unfinished.length > 0;
+}
+
+export function accountConflict(error: unknown): { error: string; field: string } | null {
+  if (!isUniqueViolation(error)) {
+    return null;
+  }
+  const constraint = error.constraint_name ?? "";
+  if (constraint.includes("email")) {
+    return { error: "That email is already registered.", field: "email" };
+  }
+  return { error: "That username is already taken.", field: "username" };
+}
+
+export async function loadSessionUser(
+  sql: postgres.Sql,
+  request: FastifyRequest,
+  secret: string,
+): Promise<SessionUser | null> {
+  return readSession(sql, request, secret);
+}
+
+export function clearAuthCookie(reply: FastifyReply, secure: boolean): void {
+  clearSession(reply, secure);
+}
+
 async function readSession(
   sql: postgres.Sql,
   request: FastifyRequest,
   secret: string,
-): Promise<UserRow | null> {
+): Promise<SessionUser | null> {
   const token = request.cookies[SESSION_COOKIE];
   if (!token) {
     return null;
   }
-  const rows = await sql<UserRow[]>`
+  const rows = await sql<SessionUser[]>`
     select u.id, u.username, u.email, u.password_hash, u.is_admin, u.disabled
     from sessions s
     join users u on u.id = s.user_id
@@ -201,7 +236,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthOptions): 
     const { username, email, password } = parsed.data;
     const passwordHash = await hashPassword(password);
     try {
-      const rows = await sql<UserRow[]>`
+      const rows = await sql<SessionUser[]>`
         insert into users (
           id, username, username_normalized, email, password_hash, gdpr_accepted_at, is_admin
         )
@@ -223,12 +258,9 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthOptions): 
       await startSession(sql, reply, user.id, sessionSecret, secureCookies);
       return reply.code(201).send({ user: publicUser(user) });
     } catch (error) {
-      if (isUniqueViolation(error)) {
-        const constraint = error.constraint_name ?? "";
-        if (constraint.includes("email")) {
-          return reply.code(409).send({ error: "That email is already registered.", field: "email" });
-        }
-        return reply.code(409).send({ error: "That username is already taken.", field: "username" });
+      const conflict = accountConflict(error);
+      if (conflict) {
+        return reply.code(409).send(conflict);
       }
       throw error;
     }
@@ -242,7 +274,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthOptions): 
     if (!parsed.success) {
       return reply.code(400).send(fieldError(parsed.error));
     }
-    const rows = await sql<UserRow[]>`
+    const rows = await sql<SessionUser[]>`
       select id, username, email, password_hash, is_admin, disabled
       from users
       where email = ${parsed.data.email}
@@ -287,15 +319,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthOptions): 
     if (!passwordMatches) {
       return reply.code(401).send({ error: "Password is incorrect.", field: "password" });
     }
-    const unfinished = await sql<{ id: string }[]>`
-      select g.id
-      from game_players gp
-      join games g on g.id = gp.game_id
-      where gp.user_id = ${user.id}::uuid
-        and g.status in ${sql(UNFINISHED_GAME_STATUSES)}
-      limit 1
-    `;
-    if (unfinished.length > 0) {
+    if (await hasUnfinishedGame(sql, user.id)) {
       return reply.code(409).send({
         error: "This account is in a game that has not finished. Deletion waits until that game is over.",
       });

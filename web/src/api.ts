@@ -63,3 +63,37 @@ export function logoutAccount(): Promise<{ ok: boolean }> {
 export function deleteAccount(password: string): Promise<{ ok: boolean }> {
   return request("/api/auth/account", { method: "DELETE", body: JSON.stringify({ password }) });
 }
+
+export type ManagedAccount = {
+  id: string;
+  username: string;
+  email: string;
+  isAdmin: boolean;
+  disabled: boolean;
+  createdAt: string;
+};
+
+export function fetchAccounts(): Promise<{ users: ManagedAccount[] }> {
+  return request("/api/admin/users");
+}
+
+export function createManagedAccount(input: {
+  username: string;
+  email: string;
+  password: string;
+  gdprAccepted: boolean;
+}): Promise<{ user: ManagedAccount }> {
+  return request("/api/admin/users", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function setAccountDisabled(id: string, disabled: boolean): Promise<{ user: ManagedAccount }> {
+  return request(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify({ disabled }) });
+}
+
+export function resetAccountPassword(id: string, password: string): Promise<{ ok: boolean }> {
+  return request(`/api/admin/users/${id}/password`, { method: "POST", body: JSON.stringify({ password }) });
+}
+
+export function deleteManagedAccount(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/admin/users/${id}`, { method: "DELETE" });
+}

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import slotsFile from "./slots.json";
 import type { BoardView } from "../api";
-import { mapPieceScale } from "./piece-scale";
 
 const VIEW_WIDTH = slotsFile.viewBox[0];
 const VIEW_HEIGHT = slotsFile.viewBox[1];
@@ -157,8 +156,8 @@ export function Board({ board }: { board: BoardView }) {
           transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`,
         }}
       >
-        <div className="board-frame" style={{ ["--map-piece-scale" as string]: mapPieceScale(camera.scale) }}>
-          <img className="board-image" src="/art/game_board_v2.svg" alt="The board" />
+        <div className="board-frame">
+          <img className="board-image" src="/art/game_board_v3.svg" alt="The board" />
           {board.nations.flatMap((nation) => {
             const meta = NATIONS.find((item) => item.id === nation.id);
             const name = meta?.name ?? nation.id;
@@ -166,7 +165,7 @@ export function Board({ board }: { board: BoardView }) {
               const [x, y] = slot(`${factory.region}_${factory.kind}_f`);
               return (
                 <Piece key={`${nation.id}-${factory.region}`} x={x} y={y} className="map-piece factory-piece" title={`${name} ${factory.kind === "sea" ? "shipyard" : "factory"}`}>
-                  <img src={factory.kind === "sea" ? "/art/factory_sea.png" : "/art/factory_land.png"} alt="" />
+                  <img src={factory.kind === "sea" ? "/art/factory_sea.svg" : "/art/factory_land.svg"} alt="" />
                 </Piece>
               );
             });

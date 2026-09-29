@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ApiError, fetchGame, grantBond, joinGame, type BoardView, type SeatedGame } from "../api";
+import { ApiError, fetchGame, grantBond, joinGame, takeTurn, type BoardView, type SeatedGame } from "../api";
 import { Board, NATIONS, PlayerPanel } from "../board/Board";
 import { useAuth } from "../auth-context";
 import { gameRemembered, rememberGame } from "../open-games";
@@ -63,6 +63,79 @@ function DraftTurn({
             Pass
           </button>
         </div>
+      ) : null}
+      {error ? <p className="error">{error}</p> : null}
+    </section>
+  );
+}
+
+function NationTurn({
+  gameId,
+  board,
+  onBoard,
+}: {
+  gameId: string;
+  board: BoardView;
+  onBoard: (board: BoardView) => void;
+}) {
+  const turn = board.turn;
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  if (board.finished) {
+    return (
+      <section className="card">
+        <h2>The game is over</h2>
+        <ul className="account-list">
+          {(board.scores ?? []).map((score) => {
+            const player = board.players.find((entry) => entry.seat === score.seat);
+            return (
+              <li key={score.seat}>
+                {player?.username ?? "Player"}: {score.points} points{score.winner ? " — wins" : ""}
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    );
+  }
+  if (!turn) {
+    return null;
+  }
+
+  async function act(command: Record<string, unknown>) {
+    setError(null);
+    setPending(true);
+    try {
+      const result = await takeTurn(gameId, command);
+      if (result.game.board) {
+        onBoard(result.game.board);
+      }
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not take that action.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2>{NATIONS.find((nation) => nation.id === turn.nationId)?.name ?? "Nation"}</h2>
+      <p className="notice">{turn.prompt}</p>
+      {turn.yours ? (
+        <div className="row-actions">
+          {turn.choices.map((choice, index) => (
+            <button key={`${choice.label}-${index}`} type="button" disabled={pending} onClick={() => void act(choice.command)}>
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {turn.canUndo ? (
+        <p className="row-actions">
+          <button type="button" className="quiet" disabled={pending} onClick={() => void act({ action: "undo" })}>
+            Undo
+          </button>
+        </p>
       ) : null}
       {error ? <p className="error">{error}</p> : null}
     </section>
@@ -183,10 +256,23 @@ export function Play() {
           board={game.board}
           onBoard={(board) => setGame({ ...game, board })}
         />
-      ) : null}
+      ) : (
+        <NationTurn gameId={game.id} board={game.board} onBoard={(board) => setGame({ ...game, board })} />
+      )}
       <div className="play-layout">
         <Board board={game.board} />
-        <PlayerPanel board={game.board} />
+        <PlayerPanel
+          board={game.board}
+          onTreasury={(nationId) => {
+            void takeTurn(game.id, { action: "treasury", nationId })
+              .then((result) => {
+                if (result.game.board) {
+                  setGame({ ...game, board: result.game.board });
+                }
+              })
+              .catch(() => undefined);
+          }}
+        />
       </div>
     </>
   );

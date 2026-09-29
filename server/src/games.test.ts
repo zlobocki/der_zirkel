@@ -291,6 +291,53 @@ describe("lobby", () => {
     expect(early.statusCode).toBe(409);
   });
 
+  it("lets the government tax and then undo that turn", async () => {
+    const ada = await register("Ada", "ada@example.com");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      headers: { cookie: ada.cookie },
+      payload: { name: "Turn Table", password: "open-sesame", humanSeats: 1, aiSeats: 0 },
+    });
+    const gameId = created.json().game.id as string;
+    const bought = await app.inject({
+      method: "POST",
+      url: `/api/games/${gameId}/draft`,
+      headers: { cookie: ada.cookie },
+      payload: { interest: 1 },
+    });
+    expect(bought.statusCode).toBe(200);
+    for (let step = 0; step < 5; step += 1) {
+      const passed = await app.inject({
+        method: "POST",
+        url: `/api/games/${gameId}/draft`,
+        headers: { cookie: ada.cookie },
+        payload: { interest: null },
+      });
+      expect(passed.statusCode).toBe(200);
+    }
+    const taxed = await app.inject({
+      method: "POST",
+      url: `/api/games/${gameId}/turn`,
+      headers: { cookie: ada.cookie },
+      payload: { action: "rondel", index: 0 },
+    });
+    expect(taxed.statusCode).toBe(200);
+    expect(taxed.json().game.board.nations.find((nation: { id: string }) => nation.id === "ah").treasury).toBe(6);
+    expect(taxed.json().game.board.turn.phase).toBe("confirm");
+    const undone = await app.inject({
+      method: "POST",
+      url: `/api/games/${gameId}/turn`,
+      headers: { cookie: ada.cookie },
+      payload: { action: "undo" },
+    });
+    expect(undone.statusCode).toBe(200);
+    expect(undone.json().game.board.nations.find((nation: { id: string }) => nation.id === "ah")).toMatchObject({
+      treasury: 2,
+      rondel: "Rondelcenter",
+    });
+  });
+
   it("rejects an impossible seat count and a duplicate open name", async () => {
     const ada = await register("Ada", "ada@example.com");
     const tooMany = await app.inject({

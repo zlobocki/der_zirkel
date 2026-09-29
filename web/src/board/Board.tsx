@@ -24,6 +24,23 @@ const CLUSTER = [
   [2.3, 1.6],
 ];
 
+const ART: Record<(typeof NATIONS)[number]["id"], { army: string; fleet: string; flag: string }> = {
+  ah: { army: "army_austria-hungary.svg", fleet: "fleet_austria-hungary.svg", flag: "flag_austria-hungary.png" },
+  ita: { army: "army_italy.svg", fleet: "fleet_italy.svg", flag: "flag_italy.png" },
+  fra: { army: "army_france.svg", fleet: "fleet_france.svg", flag: "flag_france.png" },
+  uk: { army: "army_britain.svg", fleet: "fleet_britain.svg", flag: "flag_great_britain.png" },
+  ger: { army: "army_germany.svg", fleet: "fleet_germany.svg", flag: "flag_germany.png" },
+  rus: { army: "army_russia.svg", fleet: "fleet_russia.svg", flag: "flag_russia.png" },
+};
+
+function rondelPoint(index: number): [number, number] {
+  // The printed wheel has a spoke at 12 o'clock. Taxation is the next wedge
+  // clockwise, then Factory, Production, Maneuver, Investor, Import, Production, Maneuver.
+  const angle = ((index * 45 - 67.5) * Math.PI) / 180;
+  const radius = 13;
+  return [70.21 + Math.cos(angle) * radius, 28.34 + Math.sin(angle) * radius];
+}
+
 function slot(id: string): [number, number] {
   const point = SLOTS[id];
   if (!point) {
@@ -171,9 +188,12 @@ export function Board({ board }: { board: BoardView }) {
             });
           })}
           {NATIONS.map((nation, index) => {
-            const [scoreX, scoreY] = slot("score_0");
-            const [taxX, taxY] = slot("tax_2-5");
-            const [rondelX, rondelY] = slot("Rondelcenter");
+            const state = board.nations.find((item) => item.id === nation.id);
+            const [scoreX, scoreY] = slot(`score_${Math.min(25, state?.score ?? 0)}`);
+            const [taxX, taxY] = slot(state?.tax ?? "tax_2-5");
+            const rondelId = state?.rondel ?? "Rondelcenter";
+            const rondelIndex = rondelId.startsWith("rondel_") ? Number(rondelId.slice("rondel_".length)) : null;
+            const [rondelX, rondelY] = rondelIndex === null || Number.isNaN(rondelIndex) ? slot("Rondelcenter") : rondelPoint(rondelIndex);
             const [dx, dy] = CLUSTER[index] ?? [0, 0];
             return (
               <span key={nation.id}>
@@ -189,6 +209,52 @@ export function Board({ board }: { board: BoardView }) {
               </span>
             );
           })}
+          {board.flags.map((flag) => {
+            const meta = NATIONS.find((nation) => nation.id === flag.nation);
+            const art = ART[flag.nation as keyof typeof ART];
+            const point = SLOTS[`${flag.region}_space`];
+            if (!art || !point) {
+              return null;
+            }
+            return (
+              <Piece key={`flag-${flag.region}`} x={point[0]} y={point[1] - 2.4} className="map-piece flag-piece" title={`${meta?.name ?? flag.nation} flag`}>
+                <img src={`/art/${art.flag}`} alt="" />
+              </Piece>
+            );
+          })}
+          {board.units.map((unit) => {
+            const meta = NATIONS.find((nation) => nation.id === unit.nation);
+            const art = ART[unit.nation as keyof typeof ART];
+            const slotId = unit.kind === "fleet" && unit.harbor ? `${unit.region}_port` : `${unit.region}_space`;
+            const point = SLOTS[slotId];
+            if (!art || !point) {
+              return null;
+            }
+            const sharing = board.units.filter((other) => {
+              const otherSlot = other.kind === "fleet" && other.harbor ? `${other.region}_port` : `${other.region}_space`;
+              return otherSlot === slotId;
+            });
+            const stack = sharing.findIndex((other) => other.id === unit.id);
+            const dx = ((stack % 3) - 1) * 2.2;
+            const dy = Math.floor(stack / 3) * 2.2;
+            const src = unit.kind === "fleet" ? art.fleet : art.army;
+            return (
+              <Piece
+                key={unit.id}
+                x={point[0] + dx}
+                y={point[1] + dy}
+                className={`map-piece unit-piece${unit.posture === "friendly" ? " unit-friendly" : ""}`}
+                title={`${meta?.name ?? unit.nation} ${unit.kind}`}
+              >
+                <img src={`/art/${src}`} alt="" />
+              </Piece>
+            );
+          })}
+          {board.turn ? (
+            <Piece x={slot(`${board.turn.nationId}_pawn`)[0]} y={slot(`${board.turn.nationId}_pawn`)[1]} className="turn-piece" title="Turn marker">
+              <img src="/art/turn_marker.png" alt="" />
+            </Piece>
+          ) : null}
         </div>
       </div>
       <div className="board-zoom">
@@ -214,7 +280,7 @@ export function Board({ board }: { board: BoardView }) {
   );
 }
 
-export function PlayerPanel({ board }: { board: BoardView }) {
+export function PlayerPanel({ board, onTreasury }: { board: BoardView; onTreasury?: (nationId: string) => void }) {
   return (
     <section className="card player-panel">
       <h2>Players</h2>
@@ -270,10 +336,19 @@ export function PlayerPanel({ board }: { board: BoardView }) {
                   <dd>{nation.treasury} million</dd>
                 </div>
                 <div>
+                  <dt>Power</dt>
+                  <dd>{nation.score}</dd>
+                </div>
+                <div>
                   <dt>Government</dt>
                   <dd>{government?.username ?? "None"}</dd>
                 </div>
               </dl>
+              {government?.you && onTreasury && (government.cash ?? 0) >= 1 ? (
+                <button type="button" className="quiet" onClick={() => onTreasury(nation.id)}>
+                  Pay 1 million
+                </button>
+              ) : null}
             </li>
           );
         })}

@@ -291,7 +291,10 @@ button.quiet {
   transform: translate(-50%, -50%) scale(0.9);
 }
 
-.factory-piece,
+.factory-piece {
+  width: 2.48%;
+}
+
 .unit-piece {
   width: 3.1%;
 }
@@ -305,9 +308,21 @@ button.quiet {
 }
 
 .factory-piece img,
+.unit-piece img,
+.flag-piece img,
+.turn-piece img,
 .marker {
   display: block;
   width: 100%;
+}
+
+.unit-friendly img {
+  transform: rotate(-40deg);
+  box-shadow: 0 0 0 1px #fff;
+}
+
+.turn-piece {
+  width: 1.8%;
 }
 
 .marker {

@@ -108,7 +108,7 @@ export type GameSeat = {
 export type LobbyGame = {
   id: string;
   name: string;
-  status: "waiting" | "playing";
+  status: "waiting" | "playing" | "finished";
   humanSeats: number;
   aiSeats: number;
   seatedHumans: number;
@@ -152,7 +152,17 @@ export type BoardView = {
     treasury: number;
     government: number | null;
     factories: Array<{ region: string; kind: "land" | "sea" }>;
+    rondelIndex: number | null;
   }>;
+  units: Array<{
+    id: string;
+    nation: string;
+    kind: "army" | "fleet";
+    region: string;
+    harbor: boolean;
+    posture: "standing" | "hostile" | "friendly";
+  }>;
+  flags: Array<{ region: string; nation: string }>;
   players: Array<{
     seat: number;
     kind: "human" | "ai";
@@ -169,12 +179,27 @@ export type BoardView = {
     yours: boolean;
     choices: Array<{ interest: number; price: number }>;
   } | null;
+  turn: {
+    nationId: string;
+    phase: string;
+    yours: boolean;
+    prompt: string;
+    choices: Array<{ label: string; command: Record<string, unknown> }>;
+    canUndo: boolean;
+    canConfirm: boolean;
+  } | null;
+  finished: boolean;
+  scores: Array<{ seat: number; points: number; winner: boolean }> | null;
 };
 
 export type SeatedGame = LobbyGame & { board: BoardView | null };
 
 export function grantBond(id: string, interest: number | null): Promise<{ game: SeatedGame }> {
   return request(`/api/games/${id}/draft`, { method: "POST", body: JSON.stringify({ interest }) });
+}
+
+export function takeTurn(id: string, command: Record<string, unknown>): Promise<{ game: SeatedGame }> {
+  return request(`/api/games/${id}/turn`, { method: "POST", body: JSON.stringify(command) });
 }
 
 export function fetchGame(id: string): Promise<{ game: SeatedGame }> {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { bondSrc } from "./bonds";
 import { positionFor, type Point } from "./occupy";
 import slotsFile from "./slots.json";
 import type { BoardView } from "../api";
@@ -558,14 +559,33 @@ export function PlayerPanel({ board }: { board: BoardView }) {
                   <dt>Cash</dt>
                   <dd>{player.cash === null ? "Hidden" : `${player.cash} million`}</dd>
                 </div>
-                <div>
+                <div className="bond-line">
                   <dt>Bonds</dt>
                   <dd>
-                    {player.bonds.length === 0
-                      ? "None"
-                      : player.bonds
-                          .map((bond) => `${NATIONS.find((nation) => nation.id === bond.nation)?.name ?? bond.nation} ${bond.price}`)
-                          .join(", ")}
+                    {player.bonds.length === 0 ? (
+                      "None"
+                    ) : (
+                      <span className="held-bonds">
+                        {NATIONS.map((nation) => {
+                          const held = player.bonds.filter((bond) => bond.nation === nation.id).sort((left, right) => left.interest - right.interest);
+                          if (held.length === 0) {
+                            return null;
+                          }
+                          return (
+                            <span className="bond-stack" key={nation.id} title={nation.name}>
+                              {held.map((bond, index) => (
+                                <img
+                                  key={bond.interest}
+                                  src={bondSrc(nation.id, bond.interest)}
+                                  alt={`${nation.name} ${bond.price} million`}
+                                  style={{ zIndex: index + 1 }}
+                                />
+                              ))}
+                            </span>
+                          );
+                        })}
+                      </span>
+                    )}
                   </dd>
                 </div>
                 <div>

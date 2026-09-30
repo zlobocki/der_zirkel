@@ -265,6 +265,100 @@ button.quiet {
   margin-top: 0.8rem;
 }
 
+dl div.bond-line {
+  display: block;
+}
+
+dl div.bond-line dd {
+  margin-top: 0.45rem;
+}
+
+.held-bonds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.6rem;
+  align-items: flex-start;
+}
+
+.bond-stack {
+  position: relative;
+  width: 4.4rem;
+}
+
+.bond-stack img {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.bond-stack img + img {
+  margin-top: -114.73%;
+}
+
+.bond-market {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+}
+
+.bond-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.bond-row-name {
+  flex: none;
+  width: 10.5rem;
+  font-family: "Germania One", "Palatino Linotype", Palatino, serif;
+  font-size: 1.25rem;
+}
+
+.bond-row-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+
+button.bond-offer {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: default;
+}
+
+button.bond-offer:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+button.bond-offer img {
+  display: block;
+  width: 3.15rem;
+  height: auto;
+}
+
+button.bond-offer:not(.bond-buy):not(.bond-raise) img {
+  opacity: 0.72;
+  filter: saturate(0.7);
+}
+
+button.bond-buy,
+button.bond-raise {
+  cursor: pointer;
+}
+
+button.bond-buy img {
+  box-shadow: 0 0 0 3px #39ff14;
+}
+
+button.bond-raise img {
+  box-shadow: 0 0 0 3px #f5d90a;
+}
+
 .board-window {
   position: relative;
   width: 100%;

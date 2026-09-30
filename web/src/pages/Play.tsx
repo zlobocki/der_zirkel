@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, fetchGame, grantBond, joinGame, takeTurn, type BoardView, type SeatedGame } from "../api";
 import { Board, NATIONS, PlayerPanel } from "../board/Board";
+import { bondSrc } from "../board/bonds";
 import { useAuth } from "../auth-context";
 import { gameRemembered, rememberGame } from "../open-games";
 
@@ -76,7 +77,70 @@ function shownChoices(turn: NonNullable<BoardView["turn"]>) {
   if (turn.phase === "fleets" || turn.phase === "armies") {
     return turn.choices.filter((choice) => choice.command.action === "moves-done");
   }
+  if (turn.phase === "invest") {
+    return turn.choices.filter((choice) => choice.command.action === "invest" && choice.command.interest == null);
+  }
   return turn.choices;
+}
+
+function bondOffer(choices: NonNullable<BoardView["turn"]>["choices"], nationId: string, interest: number) {
+  const matches = choices.filter((choice) => {
+    const command = choice.command;
+    return command.action === "invest" && command.nationId === nationId && command.interest === interest;
+  });
+  return matches.find((choice) => choice.command.replaceInterest != null) ?? matches[0];
+}
+
+function BondMarket({
+  board,
+  pending,
+  onAct,
+}: {
+  board: BoardView;
+  pending: boolean;
+  onAct: (command: Record<string, unknown>) => void;
+}) {
+  const turn = board.turn;
+  if (!turn || turn.phase !== "invest") {
+    return null;
+  }
+  return (
+    <div className="bond-market" aria-label="Bonds for sale">
+      {NATIONS.map((nation) => {
+        const sale = board.nations.find((entry) => entry.id === nation.id)?.bondsForSale ?? [];
+        return (
+          <div className="bond-row" key={nation.id}>
+            <span className="bond-row-name">{nation.name}</span>
+            <div className="bond-row-cards">
+              {sale.map((bond) => {
+                const offer = turn.yours ? bondOffer(turn.choices, nation.id, bond.interest) : undefined;
+                const raising = offer?.command.replaceInterest != null;
+                const buying = Boolean(offer) && !raising;
+                return (
+                  <button
+                    key={bond.interest}
+                    type="button"
+                    className={`bond-offer${buying ? " bond-buy" : ""}${raising ? " bond-raise" : ""}`}
+                    disabled={pending || !offer}
+                    title={offer?.label ?? `${nation.name} ${bond.price} million`}
+                    data-nation={nation.id}
+                    data-interest={bond.interest}
+                    onClick={() => {
+                      if (offer) {
+                        onAct(offer.command);
+                      }
+                    }}
+                  >
+                    <img src={bondSrc(nation.id, bond.interest)} alt={`${nation.name} ${bond.price} million`} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function turnHint(board: BoardView, turn: NonNullable<BoardView["turn"]>): string {
@@ -136,6 +200,8 @@ function NationTurn({
   }
 
   const nationName = NATIONS.find((nation) => nation.id === turn.nationId)?.name ?? "the nation";
+  const buyer = board.players.find((player) => player.seat === turn.actorSeat);
+  const heading = turn.phase === "invest" ? `${nationName} - ${buyer?.username ?? "A player"} currently buying bonds` : nationName;
   const you = board.players.find((player) => player.you);
   const nation = board.nations.find((entry) => entry.id === turn.nationId);
   const canPay = Boolean(you && nation && nation.government === you.seat && (you.cash ?? 0) >= 1);
@@ -143,11 +209,12 @@ function NationTurn({
 
   return (
     <section className="card">
-      <h2>{nationName}</h2>
+      <h2>{heading}</h2>
       <p className="notice">
         {turn.prompt}
         {turnHint(board, turn)}
       </p>
+      <BondMarket board={board} pending={pending} onAct={onAct} />
       {canPay ? (
         <p className="row-actions">
           <button type="button" disabled={pending} onClick={() => onAct({ action: "treasury", nationId: turn.nationId })}>

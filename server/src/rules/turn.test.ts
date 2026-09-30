@@ -276,6 +276,47 @@ describe("nation turns", () => {
     expect(ruined.units.filter((unit) => unit.nation === "ah")).toHaveLength(0);
   });
 
+  it("offers bonds the investor can afford after interest and the two million bonus", () => {
+    const started = game({
+      players: [player(0, 10, { investor: true, swissBank: false }), player(1, 0, { investor: false, swissBank: false })],
+    });
+    const invested = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    expect(invested.players[0]?.cash).toBe(12);
+    const interests = (describeTurn(invested, 0)?.choices ?? []).flatMap((entry) => {
+      const command = entry.command;
+      if (command.action !== "invest" || command.nationId !== "ah" || command.replaceInterest !== null) {
+        return [];
+      }
+      return [command.interest];
+    });
+    expect(interests).toContain(5);
+    expect(interests).not.toContain(6);
+  });
+
+  it("raises a bond the player already holds instead of selling a second one", () => {
+    const started = game({
+      players: [
+        player(0, 20, { bonds: [{ nation: "ah", interest: 2, price: 4 }], investor: true, swissBank: false }),
+        player(1, 0, { investor: false, swissBank: false }),
+      ],
+    });
+    started.piles.ah = started.piles.ah.filter((interest) => interest !== 2);
+    const invested = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    expect(invested.players[0]?.cash).toBe(22);
+    const raises = (describeTurn(invested, 0)?.choices ?? []).flatMap((entry) => {
+      const command = entry.command;
+      if (command.action !== "invest" || command.nationId !== "ah" || command.replaceInterest !== 2) {
+        return [];
+      }
+      return [command.interest];
+    });
+    expect(raises).toContain(8);
+    expect(raises).not.toContain(9);
+    expect(performTurn(invested, 0, { action: "invest", nationId: "ah", interest: 3, replaceInterest: null })).toMatchObject({
+      error: "Raise the bond you already hold in that nation.",
+    });
+  });
+
   it("lets the Swiss bank stop a move that passes Investor", () => {
     const started = game({ rondel: { ah: 3 } });
     const asked = ok(performTurn(started, 0, { action: "rondel", index: 5 }));

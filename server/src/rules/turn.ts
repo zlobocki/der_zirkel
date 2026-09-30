@@ -116,6 +116,7 @@ export type TurnView = {
   choices: TurnChoice[];
   canUndo: boolean;
   canConfirm: boolean;
+  actorSeat: number | null;
 };
 
 const TAX_SPACES = ["tax_2-5", "tax_6", "tax_7", "tax_8", "tax_9", "tax_10", "tax_11", "tax_12", "tax_13", "tax_14", "tax_15+"];
@@ -1004,6 +1005,9 @@ function buyBond(board: Board, seat: number, nationId: NationId, interest: numbe
   if (price === null || !pile?.includes(interest) || !player || !nation) {
     return "That bond has already been taken.";
   }
+  if (replace === null && player.bonds.some((bond) => bond.nation === nationId)) {
+    return "Raise the bond you already hold in that nation.";
+  }
   if (replace !== null) {
     const held = player.bonds.find((bond) => bond.nation === nationId && bond.interest === replace);
     if (!held) {
@@ -1220,20 +1224,24 @@ function investmentChoices(board: Board, seat: number): Array<{ nationId: Nation
         continue;
       }
       const name = NATION_NAME[nationId];
-      if (player.cash >= price) {
-        choices.push({ nationId, interest, replaceInterest: null, price, label: `${name} ${price} million` });
-      }
-      for (const held of player.bonds.filter((bond) => bond.nation === nationId && bond.price < price)) {
-        const difference = price - held.price;
-        if (player.cash >= difference) {
-          choices.push({
-            nationId,
-            interest,
-            replaceInterest: held.interest,
-            price: difference,
-            label: `Raise ${name} ${held.price} to ${price}`,
-          });
+      const held = player.bonds
+        .filter((bond) => bond.nation === nationId)
+        .reduce<BoardPlayer["bonds"][number] | null>((best, bond) => (best === null || bond.price > best.price ? bond : best), null);
+      if (held) {
+        if (held.price < price) {
+          const difference = price - held.price;
+          if (player.cash >= difference) {
+            choices.push({
+              nationId,
+              interest,
+              replaceInterest: held.interest,
+              price: difference,
+              label: `Raise ${name} ${held.price} to ${price}`,
+            });
+          }
         }
+      } else if (player.cash >= price) {
+        choices.push({ nationId, interest, replaceInterest: null, price, label: `${name} ${price} million` });
       }
     }
   }
@@ -1423,6 +1431,7 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
       choices: [choice("Continue", { action: "continue" })],
       canUndo: false,
       canConfirm: false,
+      actorSeat: null,
     };
   }
   const base = {
@@ -1433,6 +1442,7 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     canConfirm: turn.phase === "confirm" && yours,
     prompt: `${name}'s government${leader?.username ? `, ${leader.username},` : ""} is taking a turn.`,
     choices: [] as TurnChoice[],
+    actorSeat: actor,
   };
   if (!yours) {
     return base;

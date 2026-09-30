@@ -189,6 +189,7 @@ export type BoardView = {
     choices: Array<{ label: string; command: Record<string, unknown> }>;
     canUndo: boolean;
     canConfirm: boolean;
+    actorSeat: number | null;
   } | null;
   finished: boolean;
   scores: Array<{ seat: number; points: number; winner: boolean }> | null;

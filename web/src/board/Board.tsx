@@ -158,12 +158,33 @@ function slotKey(unit: BoardView["units"][number]): string {
   return unit.kind === "fleet" && unit.harbor ? `${unit.region}_port` : `${unit.region}_space`;
 }
 
-function occupants(board: BoardView): Map<string, string[]> {
-  const buckets = new Map<string, string[]>();
+type UnitStack = {
+  id: string;
+  key: string;
+  units: BoardView["units"];
+};
+
+function stackId(nation: string, kind: string): string {
+  return `stack:${nation}:${kind}`;
+}
+
+function unitStacks(board: BoardView): UnitStack[] {
+  const groups = new Map<string, BoardView["units"]>();
   const units = [...board.units].sort((left, right) => left.id.localeCompare(right.id));
   for (const unit of units) {
-    const key = slotKey(unit);
-    buckets.set(key, [...(buckets.get(key) ?? []), unit.id]);
+    const key = `${slotKey(unit)}|${unit.nation}|${unit.kind}`;
+    groups.set(key, [...(groups.get(key) ?? []), unit]);
+  }
+  return [...groups.entries()].map(([groupKey, grouped]) => {
+    const key = groupKey.slice(0, groupKey.indexOf("|"));
+    return { id: stackId(grouped[0]?.nation ?? "", grouped[0]?.kind ?? ""), key, units: grouped };
+  });
+}
+
+function occupants(board: BoardView): Map<string, string[]> {
+  const buckets = new Map<string, string[]>();
+  for (const stack of unitStacks(board)) {
+    buckets.set(stack.key, [...(buckets.get(stack.key) ?? []), stack.id]);
   }
   for (const flag of board.flags) {
     const key = `${flag.region}_space`;
@@ -175,11 +196,15 @@ function occupants(board: BoardView): Map<string, string[]> {
 function arrivalSlot(board: BoardView, unit: BoardView["units"][number], region: string): Point {
   const staying = unit.kind === "fleet" && unit.harbor && region === unit.region;
   const key = unit.kind === "fleet" && staying ? `${region}_port` : `${region}_space`;
-  const ids = (occupants(board).get(key) ?? []).filter((id) => id !== unit.id);
-  const unitsHere = ids.filter((id) => !id.startsWith("flag:"));
-  const flag = ids.find((id) => id.startsWith("flag:"));
-  const order = [...unitsHere, unit.id, ...(flag ? [flag] : [])];
-  return positionFor(slotList(key), order, unit.id) ?? slotList(key)[0] ?? [0, 0];
+  const id = stackId(unit.nation, unit.kind);
+  const ids = occupants(board).get(key) ?? [];
+  if (ids.includes(id)) {
+    return positionFor(slotList(key), ids, id) ?? slotList(key)[0] ?? [0, 0];
+  }
+  const unitsHere = ids.filter((entry) => !entry.startsWith("flag:"));
+  const flag = ids.find((entry) => entry.startsWith("flag:"));
+  const order = [...unitsHere, id, ...(flag ? [flag] : [])];
+  return positionFor(slotList(key), order, id) ?? slotList(key)[0] ?? [0, 0];
 }
 
 type Camera = { scale: number; x: number; y: number; baseWidth: number };
@@ -383,36 +408,47 @@ export function Board({ board, onCommand }: { board: BoardView; onCommand?: (com
               </Piece>
             );
           })}
-          {board.units.map((unit) => {
+          {unitStacks(board).map((stack) => {
+            const unit = stack.units[0];
+            if (!unit) {
+              return null;
+            }
             const meta = NATIONS.find((nation) => nation.id === unit.nation);
             const art = ART[unit.nation as keyof typeof ART];
-            const key = slotKey(unit);
-            const point = positionFor(slotList(key), laid.get(key) ?? [], unit.id);
+            const point = positionFor(slotList(stack.key), laid.get(stack.key) ?? [], stack.id);
             if (!art || !point) {
               return null;
             }
             const src = unit.kind === "fleet" ? art.fleet : art.army;
-            const ready = movable.has(unit.id);
-            const selected = selectedUnit === unit.id;
+            const readyUnits = stack.units.filter((entry) => movable.has(entry.id));
+            const ready = readyUnits.length > 0;
+            const selected = stack.units.some((entry) => entry.id === selectedUnit);
+            const friendly = stack.units.every((entry) => entry.posture === "friendly");
+            const count = stack.units.length;
+            const name = meta?.name ?? unit.nation;
+            const label = count > 1 ? `${count} ${name} ${unit.kind === "fleet" ? "fleets" : "armies"}` : `${name} ${unit.kind}`;
             return (
               <Piece
-                key={unit.id}
+                key={`${stack.key}:${stack.id}`}
                 x={point[0]}
                 y={point[1]}
-                className={`map-piece unit-piece${unit.posture === "friendly" ? " unit-friendly" : ""}${ready ? " unit-ready" : ""}${selected ? " unit-selected" : ""}`}
-                title={`${meta?.name ?? unit.nation} ${unit.kind}`}
+                className={`map-piece unit-piece${friendly ? " unit-friendly" : ""}${ready ? " unit-ready" : ""}${selected ? " unit-selected" : ""}`}
+                title={label}
                 regionId={unit.region}
-                unitId={unit.id}
+                unitId={stack.units.find((entry) => entry.id === selectedUnit)?.id ?? unit.id}
                 onClick={
                   ready
                     ? () => {
-                        setSelectedUnit(unit.id);
+                        const current = readyUnits.findIndex((entry) => entry.id === selectedUnit);
+                        const next = readyUnits[(current + 1) % readyUnits.length];
+                        setSelectedUnit(next?.id ?? null);
                         setPostureFor(null);
                       }
                     : undefined
                 }
               >
                 <img src={`/art/${src}`} alt="" />
+                {count > 1 ? <span className="unit-count">{count}</span> : null}
               </Piece>
             );
           })}

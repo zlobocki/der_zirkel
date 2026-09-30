@@ -473,6 +473,21 @@ button.intent-raise {
   box-shadow: 0 0 0 3px #c6ff4a, 0 0 14px #39ff14;
 }
 
+.unit-count {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translate(-50%, 0.08em);
+  padding: 0.02em 0.2em;
+  background: #000;
+  color: #fff;
+  font-family: "Germania One", "Palatino Linotype", Palatino, serif;
+  font-size: 1.05cqi;
+  line-height: 1.05;
+  text-align: center;
+  pointer-events: none;
+}
+
 .rondel-layer {
   position: absolute;
   inset: 0;
@@ -547,7 +562,7 @@ button.intent-raise {
   font-size: 2.5cqi;
   line-height: 1;
   text-shadow: 0 0 2px #fff;
-  transform: translate(-50%, -72%);
+  transform: translate(-50%, -61%);
 }
 
 .marker {

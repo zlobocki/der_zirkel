@@ -62,6 +62,7 @@ def main() -> None:
     parent = {child: node for node in root.iter() for child in list(node)}
     view_box = [float(part) for part in root.get("viewBox", "0 0 354.01199 242.604").split()[2:4]]
     slots = {}
+    groups: dict[str, list[list[float]]] = {}
     for element in root.iter(SVG + "text"):
         label = text_of(element)
         if not KEEP.match(label):
@@ -77,9 +78,19 @@ def main() -> None:
             for operation in parse_transform(node.get("transform")):
                 x, y = apply_operation(operation, x, y)
             node = parent.get(node)
-        slots[label] = [round(x, 2), round(y, 2)]
+        point = [round(x, 2), round(y, 2)]
+        slots[label] = point
+        if re.match(r"^(LR|SR)\d+_", label):
+            bucket = groups.setdefault(label, [])
+            if point not in bucket:
+                bucket.append(point)
+    for label, points in groups.items():
+        current = slots.get(label)
+        if current in points:
+            index = points.index(current)
+            groups[label] = points[index:] + points[:index]
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps({"viewBox": view_box, "slots": slots}, indent=2) + "\n", encoding="utf-8")
+    OUTPUT.write_text(json.dumps({"viewBox": view_box, "slots": slots, "groups": groups}, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {len(slots)} slots to {OUTPUT}")
 
 

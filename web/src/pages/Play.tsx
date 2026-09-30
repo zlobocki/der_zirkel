@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, fetchGame, grantBond, joinGame, takeTurn, type BoardView, type SeatedGame } from "../api";
 import { Board, NATIONS, PlayerPanel } from "../board/Board";
@@ -69,18 +69,51 @@ function DraftTurn({
   );
 }
 
+function shownChoices(turn: NonNullable<BoardView["turn"]>) {
+  if (!turn.yours || turn.phase === "rondel") {
+    return [];
+  }
+  if (turn.phase === "fleets" || turn.phase === "armies") {
+    return turn.choices.filter((choice) => choice.command.action === "moves-done");
+  }
+  return turn.choices;
+}
+
+function turnHint(board: BoardView, turn: NonNullable<BoardView["turn"]>): string {
+  if (!turn.yours) {
+    return "";
+  }
+  if (turn.phase === "rondel" && turn.choices.some((choice) => choice.command.action === "rondel")) {
+    return " Click a highlighted space on the rondel.";
+  }
+  if (turn.phase === "fleets" || turn.phase === "armies") {
+    const canMove = turn.choices.some((choice) => {
+      const command = choice.command;
+      if (command.action !== "move" || typeof command.unitId !== "string" || typeof command.region !== "string") {
+        return false;
+      }
+      const unit = board.units.find((entry) => entry.id === command.unitId);
+      return Boolean(unit && command.region !== unit.region);
+    });
+    if (canMove) {
+      return " Click a highlighted unit, then a green dot.";
+    }
+  }
+  return "";
+}
+
 function NationTurn({
-  gameId,
   board,
-  onBoard,
+  pending,
+  error,
+  onAct,
 }: {
-  gameId: string;
   board: BoardView;
-  onBoard: (board: BoardView) => void;
+  pending: boolean;
+  error: string | null;
+  onAct: (command: Record<string, unknown>) => void;
 }) {
   const turn = board.turn;
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
   if (board.finished) {
     return (
       <section className="card">
@@ -102,7 +135,65 @@ function NationTurn({
     return null;
   }
 
+  const nationName = NATIONS.find((nation) => nation.id === turn.nationId)?.name ?? "the nation";
+  const you = board.players.find((player) => player.you);
+  const nation = board.nations.find((entry) => entry.id === turn.nationId);
+  const canPay = Boolean(you && nation && nation.government === you.seat && (you.cash ?? 0) >= 1);
+  const choices = shownChoices(turn);
+
+  return (
+    <section className="card">
+      <h2>{nationName}</h2>
+      <p className="notice">
+        {turn.prompt}
+        {turnHint(board, turn)}
+      </p>
+      {canPay ? (
+        <p className="row-actions">
+          <button type="button" disabled={pending} onClick={() => onAct({ action: "treasury", nationId: turn.nationId })}>
+            Pay 1 million to {nationName}
+          </button>
+        </p>
+      ) : null}
+      {choices.length > 0 ? (
+        <div className="row-actions">
+          {choices.map((choice, index) => (
+            <button key={`${choice.label}-${index}`} type="button" disabled={pending} onClick={() => onAct(choice.command)}>
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {turn.canUndo ? (
+        <p className="row-actions">
+          <button type="button" className="quiet" disabled={pending} onClick={() => onAct({ action: "undo" })}>
+            Undo
+          </button>
+        </p>
+      ) : null}
+      {error ? <p className="error">{error}</p> : null}
+    </section>
+  );
+}
+
+function GameTable({
+  gameId,
+  board,
+  onBoard,
+}: {
+  gameId: string;
+  board: BoardView;
+  onBoard: (board: BoardView) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const busy = useRef(false);
+
   async function act(command: Record<string, unknown>) {
+    if (busy.current) {
+      return;
+    }
+    busy.current = true;
     setError(null);
     setPending(true);
     try {
@@ -113,32 +204,23 @@ function NationTurn({
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not take that action.");
     } finally {
+      busy.current = false;
       setPending(false);
     }
   }
 
   return (
-    <section className="card">
-      <h2>{NATIONS.find((nation) => nation.id === turn.nationId)?.name ?? "Nation"}</h2>
-      <p className="notice">{turn.prompt}</p>
-      {turn.yours ? (
-        <div className="row-actions">
-          {turn.choices.map((choice, index) => (
-            <button key={`${choice.label}-${index}`} type="button" disabled={pending} onClick={() => void act(choice.command)}>
-              {choice.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {turn.canUndo ? (
-        <p className="row-actions">
-          <button type="button" className="quiet" disabled={pending} onClick={() => void act({ action: "undo" })}>
-            Undo
-          </button>
-        </p>
-      ) : null}
-      {error ? <p className="error">{error}</p> : null}
-    </section>
+    <>
+      {board.draft ? (
+        <DraftTurn gameId={gameId} board={board} onBoard={onBoard} />
+      ) : (
+        <NationTurn board={board} pending={pending} error={error} onAct={(command) => void act(command)} />
+      )}
+      <div className="play-layout">
+        <Board board={board} onCommand={(command) => void act(command)} />
+        <PlayerPanel board={board} />
+      </div>
+    </>
   );
 }
 
@@ -250,30 +332,7 @@ export function Play() {
         <Link to="/lobby">Lobby</Link>
       </p>
       <h2>{game.name}</h2>
-      {game.board.draft ? (
-        <DraftTurn
-          gameId={game.id}
-          board={game.board}
-          onBoard={(board) => setGame({ ...game, board })}
-        />
-      ) : (
-        <NationTurn gameId={game.id} board={game.board} onBoard={(board) => setGame({ ...game, board })} />
-      )}
-      <div className="play-layout">
-        <Board board={game.board} />
-        <PlayerPanel
-          board={game.board}
-          onTreasury={(nationId) => {
-            void takeTurn(game.id, { action: "treasury", nationId })
-              .then((result) => {
-                if (result.game.board) {
-                  setGame({ ...game, board: result.game.board });
-                }
-              })
-              .catch(() => undefined);
-          }}
-        />
-      </div>
+      <GameTable gameId={game.id} board={game.board} onBoard={(board) => setGame({ ...game, board })} />
     </>
   );
 }

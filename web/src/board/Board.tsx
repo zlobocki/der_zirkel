@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { positionFor, type Point } from "./occupy";
 import slotsFile from "./slots.json";
 import type { BoardView } from "../api";
 
 const VIEW_WIDTH = slotsFile.viewBox[0];
 const VIEW_HEIGHT = slotsFile.viewBox[1];
-const SLOTS = slotsFile.slots as unknown as Record<string, [number, number]>;
+const SLOTS = slotsFile.slots as unknown as Record<string, Point>;
+const GROUPS = slotsFile.groups as unknown as Record<string, Point[]>;
 
 export const NATIONS = [
   { id: "ah", name: "Austria-Hungary", color: "#d5bf0a" },
@@ -55,7 +57,7 @@ function ownerNote(board: BoardView, nationId: string, nationName: string): stri
   return `${nationName}\nBonds held\n${held.join("\n")}\nFor sale: ${sale}`;
 }
 
-function slot(id: string): [number, number] {
+function slot(id: string): Point {
   const point = SLOTS[id];
   if (!point) {
     throw new Error(`Missing board slot ${id}`);
@@ -63,16 +65,109 @@ function slot(id: string): [number, number] {
   return point;
 }
 
-function Piece({ x, y, className, title, children }: { x: number; y: number; className: string; title: string; children: ReactNode }) {
+function slotList(id: string): Point[] {
+  const group = GROUPS[id];
+  if (group && group.length > 0) {
+    return group;
+  }
+  const point = SLOTS[id];
+  return point ? [point] : [];
+}
+
+function Piece({
+  x,
+  y,
+  className,
+  title,
+  children,
+  onClick,
+  regionId,
+  unitId,
+}: {
+  x: number;
+  y: number;
+  className: string;
+  title: string;
+  children: ReactNode;
+  onClick?: () => void;
+  regionId?: string;
+  unitId?: string;
+}) {
   return (
     <div
       className={`piece ${className}`}
       title={title}
+      data-region={regionId}
+      data-unit={unitId}
+      onClick={
+        onClick
+          ? (event) => {
+              event.stopPropagation();
+              onClick();
+            }
+          : undefined
+      }
       style={{ left: `${(x / VIEW_WIDTH) * 100}%`, top: `${(y / VIEW_HEIGHT) * 100}%` }}
     >
       {children}
     </div>
   );
+}
+
+function sectorPath(index: number): string {
+  const center = ((index * 45 - 67.5) * Math.PI) / 180;
+  const start = center - (22.5 * Math.PI) / 180;
+  const end = center + (22.5 * Math.PI) / 180;
+  const cx = 70.21;
+  const cy = 28.34;
+  const arc = (radius: number, angle: number) => [cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius];
+  const [x0, y0] = arc(23, start);
+  const [x1, y1] = arc(23, end);
+  const [x2, y2] = arc(7, end);
+  const [x3, y3] = arc(7, start);
+  return `M ${x0} ${y0} A 23 23 0 0 1 ${x1} ${y1} L ${x2} ${y2} A 7 7 0 0 0 ${x3} ${y3} Z`;
+}
+
+type MoveCommand = { unitId: string; region: string; posture?: "hostile" | "friendly"; label: string };
+
+function moveCommands(board: BoardView): MoveCommand[] {
+  const choices = board.turn?.choices ?? [];
+  return choices.flatMap((choice) => {
+    const command = choice.command;
+    if (command.action !== "move" || typeof command.unitId !== "string" || typeof command.region !== "string") {
+      return [];
+    }
+    const posture = command.posture === "hostile" || command.posture === "friendly" ? command.posture : undefined;
+    return [{ unitId: command.unitId, region: command.region, posture, label: choice.label }];
+  });
+}
+
+function slotKey(unit: BoardView["units"][number]): string {
+  return unit.kind === "fleet" && unit.harbor ? `${unit.region}_port` : `${unit.region}_space`;
+}
+
+function occupants(board: BoardView): Map<string, string[]> {
+  const buckets = new Map<string, string[]>();
+  const units = [...board.units].sort((left, right) => left.id.localeCompare(right.id));
+  for (const unit of units) {
+    const key = slotKey(unit);
+    buckets.set(key, [...(buckets.get(key) ?? []), unit.id]);
+  }
+  for (const flag of board.flags) {
+    const key = `${flag.region}_space`;
+    buckets.set(key, [...(buckets.get(key) ?? []), `flag:${flag.region}`]);
+  }
+  return buckets;
+}
+
+function arrivalSlot(board: BoardView, unit: BoardView["units"][number], region: string): Point {
+  const staying = unit.kind === "fleet" && unit.harbor && region === unit.region;
+  const key = unit.kind === "fleet" && staying ? `${region}_port` : `${region}_space`;
+  const ids = (occupants(board).get(key) ?? []).filter((id) => id !== unit.id);
+  const unitsHere = ids.filter((id) => !id.startsWith("flag:"));
+  const flag = ids.find((id) => id.startsWith("flag:"));
+  const order = [...unitsHere, unit.id, ...(flag ? [flag] : [])];
+  return positionFor(slotList(key), order, unit.id) ?? slotList(key)[0] ?? [0, 0];
 }
 
 type Camera = { scale: number; x: number; y: number; baseWidth: number };
@@ -103,11 +198,20 @@ function zoomAt(camera: Camera, px: number, py: number, factor: number): Camera 
   };
 }
 
-export function Board({ board }: { board: BoardView }) {
+export function Board({ board, onCommand }: { board: BoardView; onCommand?: (command: Record<string, unknown>) => void }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<Camera>({ scale: 1, x: 0, y: 0, baseWidth: 0 });
   const [camera, setCamera] = useState<Camera>({ scale: 1, x: 0, y: 0, baseWidth: 0 });
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
+  const [postureFor, setPostureFor] = useState<string | null>(null);
+  const [panning, setPanning] = useState(false);
+  const turnKey = `${board.turn?.nationId ?? ""}:${board.turn?.phase ?? ""}:${board.turn?.choices.length ?? 0}`;
+
+  useEffect(() => {
+    setSelectedUnit(null);
+    setPostureFor(null);
+  }, [turnKey]);
 
   function updateCamera(next: Camera) {
     cameraRef.current = next;
@@ -121,6 +225,9 @@ export function Board({ board }: { board: BoardView }) {
     }
     updateCamera(fitCamera(viewport));
     const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) {
+        return;
+      }
       event.preventDefault();
       const rect = viewport.getBoundingClientRect();
       const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
@@ -131,18 +238,35 @@ export function Board({ board }: { board: BoardView }) {
         updateCamera(fitCamera(viewport));
       }
     };
+    const stopMiddle = (event: MouseEvent) => {
+      if (event.button === 1) {
+        event.preventDefault();
+      }
+    };
     viewport.addEventListener("wheel", onWheel, { passive: false });
+    viewport.addEventListener("mousedown", stopMiddle, { capture: true });
+    viewport.addEventListener("auxclick", stopMiddle);
     window.addEventListener("resize", onResize);
     return () => {
       viewport.removeEventListener("wheel", onWheel);
+      viewport.removeEventListener("mousedown", stopMiddle, { capture: true });
+      viewport.removeEventListener("auxclick", stopMiddle);
       window.removeEventListener("resize", onResize);
     };
   }, []);
 
+  function onMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.button === 1) {
+      event.preventDefault();
+    }
+  }
+
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if ((event.target as HTMLElement).closest("button")) {
+    if (event.button !== 1) {
       return;
     }
+    event.preventDefault();
+    setPanning(true);
     dragRef.current = { x: event.clientX, y: event.clientY, ox: cameraRef.current.x, oy: cameraRef.current.y };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -152,6 +276,7 @@ export function Board({ board }: { board: BoardView }) {
     if (!drag) {
       return;
     }
+    event.preventDefault();
     updateCamera({
       ...cameraRef.current,
       x: drag.ox + event.clientX - drag.x,
@@ -161,6 +286,7 @@ export function Board({ board }: { board: BoardView }) {
 
   function onPointerUp() {
     dragRef.current = null;
+    setPanning(false);
   }
 
   function zoomBy(factor: number) {
@@ -171,10 +297,18 @@ export function Board({ board }: { board: BoardView }) {
     updateCamera(zoomAt(cameraRef.current, viewport.clientWidth / 2, viewport.clientHeight / 2, factor));
   }
 
+  const laid = occupants(board);
+  const moves = board.turn?.yours ? moveCommands(board) : [];
+  const movable = new Set(moves.map((move) => move.unitId));
+  const selectedMoves = moves.filter((move) => move.unitId === selectedUnit && move.region !== board.units.find((unit) => unit.id === selectedUnit)?.region);
+  const rondelChoices = board.turn?.yours && board.turn.phase === "rondel" ? board.turn.choices.filter((choice) => choice.command.action === "rondel") : [];
+
   return (
     <div
-      className="board-window"
+      className={`board-window${panning ? " panning" : ""}`}
       ref={viewportRef}
+      onMouseDown={onMouseDown}
+      onAuxClick={(event) => event.preventDefault()}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -226,12 +360,13 @@ export function Board({ board }: { board: BoardView }) {
           {board.flags.map((flag) => {
             const meta = NATIONS.find((nation) => nation.id === flag.nation);
             const art = ART[flag.nation as keyof typeof ART];
-            const point = SLOTS[`${flag.region}_space`];
+            const key = `${flag.region}_space`;
+            const point = positionFor(slotList(key), laid.get(key) ?? [], `flag:${flag.region}`);
             if (!art || !point) {
               return null;
             }
             return (
-              <Piece key={`flag-${flag.region}`} x={point[0]} y={point[1] - 2.4} className="map-piece flag-piece" title={`${meta?.name ?? flag.nation} flag`}>
+              <Piece key={`flag-${flag.region}`} x={point[0]} y={point[1]} className="map-piece flag-piece" title={`${meta?.name ?? flag.nation} flag`} regionId={flag.region}>
                 <img src={`/art/${art.flag}`} alt="" />
               </Piece>
             );
@@ -239,26 +374,31 @@ export function Board({ board }: { board: BoardView }) {
           {board.units.map((unit) => {
             const meta = NATIONS.find((nation) => nation.id === unit.nation);
             const art = ART[unit.nation as keyof typeof ART];
-            const slotId = unit.kind === "fleet" && unit.harbor ? `${unit.region}_port` : `${unit.region}_space`;
-            const point = SLOTS[slotId];
+            const key = slotKey(unit);
+            const point = positionFor(slotList(key), laid.get(key) ?? [], unit.id);
             if (!art || !point) {
               return null;
             }
-            const sharing = board.units.filter((other) => {
-              const otherSlot = other.kind === "fleet" && other.harbor ? `${other.region}_port` : `${other.region}_space`;
-              return otherSlot === slotId;
-            });
-            const stack = sharing.findIndex((other) => other.id === unit.id);
-            const dx = ((stack % 3) - 1) * 2.2;
-            const dy = Math.floor(stack / 3) * 2.2;
             const src = unit.kind === "fleet" ? art.fleet : art.army;
+            const ready = movable.has(unit.id);
+            const selected = selectedUnit === unit.id;
             return (
               <Piece
                 key={unit.id}
-                x={point[0] + dx}
-                y={point[1] + dy}
-                className={`map-piece unit-piece${unit.posture === "friendly" ? " unit-friendly" : ""}`}
+                x={point[0]}
+                y={point[1]}
+                className={`map-piece unit-piece${unit.posture === "friendly" ? " unit-friendly" : ""}${ready ? " unit-ready" : ""}${selected ? " unit-selected" : ""}`}
                 title={`${meta?.name ?? unit.nation} ${unit.kind}`}
+                regionId={unit.region}
+                unitId={unit.id}
+                onClick={
+                  ready
+                    ? () => {
+                        setSelectedUnit(unit.id);
+                        setPostureFor(null);
+                      }
+                    : undefined
+                }
               >
                 <img src={`/art/${src}`} alt="" />
               </Piece>
@@ -294,6 +434,85 @@ export function Board({ board }: { board: BoardView }) {
               <img src="/art/turn_marker.png" alt="" />
             </Piece>
           ) : null}
+          {rondelChoices.length > 0 ? (
+            <svg className="rondel-layer" viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}>
+              {rondelChoices.map((choice) => {
+                const index = Number(choice.command.index);
+                if (!Number.isInteger(index)) {
+                  return null;
+                }
+                return (
+                  <path
+                    key={index}
+                    d={sectorPath(index)}
+                    className="rondel-hit"
+                    aria-label={choice.label}
+                    onClick={() => onCommand?.({ action: "rondel", index })}
+                  >
+                    <title>{choice.label}</title>
+                  </path>
+                );
+              })}
+            </svg>
+          ) : null}
+          {[...new Set(selectedMoves.map((move) => move.region))].map((region) => {
+            const unit = board.units.find((entry) => entry.id === selectedUnit);
+            const options = selectedMoves.filter((move) => move.region === region);
+            const direct = options.length === 1 ? options[0] : undefined;
+            if (!unit) {
+              return null;
+            }
+            const [x, y] = arrivalSlot(board, unit, region);
+            return (
+              <span key={`${selectedUnit}-${region}`}>
+                <Piece
+                  x={x}
+                  y={y}
+                  className="move-dot"
+                  regionId={region}
+                  title={direct?.label ?? "Choose how the army enters"}
+                  onClick={() => {
+                    if (!onCommand || !selectedUnit) {
+                      return;
+                    }
+                    if (!direct) {
+                      setPostureFor(region);
+                      return;
+                    }
+                    onCommand({
+                      action: "move",
+                      unitId: selectedUnit,
+                      region,
+                      ...(direct.posture ? { posture: direct.posture } : {}),
+                    });
+                  }}
+                >
+                  <span />
+                </Piece>
+                {postureFor === region
+                  ? options.map((option, index) => (
+                      <Piece
+                        key={option.posture ?? "enter"}
+                        x={x + (index === 0 ? -6 : 6)}
+                        y={y + 4}
+                        className="move-posture"
+                        title={option.posture === "hostile" ? "Hostile" : "Friendly"}
+                        onClick={() =>
+                          onCommand?.({
+                            action: "move",
+                            unitId: option.unitId,
+                            region,
+                            ...(option.posture ? { posture: option.posture } : {}),
+                          })
+                        }
+                      >
+                        {option.posture === "hostile" ? "Hostile" : "Friendly"}
+                      </Piece>
+                    ))
+                  : null}
+              </span>
+            );
+          })}
         </div>
       </div>
       <div className="board-zoom">
@@ -319,13 +538,12 @@ export function Board({ board }: { board: BoardView }) {
   );
 }
 
-export function PlayerPanel({ board, onTreasury }: { board: BoardView; onTreasury?: (nationId: string) => void }) {
+export function PlayerPanel({ board }: { board: BoardView }) {
   return (
     <section className="player-board" aria-label="Players">
       <h2>Players</h2>
       <div className="player-grid">
         {board.players.map((player) => {
-          const governed = board.nations.filter((nation) => nation.government === player.seat);
           return (
             <article className="card player-card" key={player.seat}>
               <h3 className="player-name">
@@ -363,13 +581,6 @@ export function PlayerPanel({ board, onTreasury }: { board: BoardView; onTreasur
                   </dd>
                 </div>
               </dl>
-              {player.you && onTreasury && (player.cash ?? 0) >= 1
-                ? governed.map((nation) => (
-                    <button key={nation.id} type="button" className="quiet" onClick={() => onTreasury(nation.id)}>
-                      Pay 1 million to {NATIONS.find((item) => item.id === nation.id)?.name ?? nation.id}
-                    </button>
-                  ))
-                : null}
             </article>
           );
         })}

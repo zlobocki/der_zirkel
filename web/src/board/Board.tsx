@@ -41,6 +41,20 @@ function rondelPoint(index: number): [number, number] {
   return [70.21 + Math.cos(angle) * radius, 28.34 + Math.sin(angle) * radius];
 }
 
+function tokenSrc(seat: number): string {
+  return `/art/player_token_${seat + 1}.png`;
+}
+
+function ownerNote(board: BoardView, nationId: string, nationName: string): string {
+  const nation = board.nations.find((item) => item.id === nationId);
+  const held = board.players.map((player) => {
+    const value = player.bonds.filter((bond) => bond.nation === nationId).reduce((total, bond) => total + bond.price, 0);
+    return `${player.username ?? "Open seat"}: ${value} million`;
+  });
+  const sale = nation?.bondsForSale.length ? nation.bondsForSale.map((bond) => `${bond.price} million`).join(", ") : "none";
+  return `${nationName}\nBonds held\n${held.join("\n")}\nFor sale: ${sale}`;
+}
+
 function slot(id: string): [number, number] {
   const point = SLOTS[id];
   if (!point) {
@@ -250,6 +264,31 @@ export function Board({ board }: { board: BoardView }) {
               </Piece>
             );
           })}
+          {NATIONS.map((nation) => {
+            const state = board.nations.find((item) => item.id === nation.id);
+            if (!state) {
+              return null;
+            }
+            const [taxX, taxY] = slot(`${nation.id}_tax`);
+            const [treasuryX, treasuryY] = slot(`${nation.id}_treasury`);
+            const government = board.players.find((player) => player.seat === state.government);
+            const [ownerX, ownerY] = slot(`${nation.id}_owner`);
+            return (
+              <span key={`${nation.id}-status`}>
+                <Piece x={taxX} y={taxY} className="nation-value" title={`${nation.name} tax ${state.taxation}`}>
+                  {state.taxation}
+                </Piece>
+                <Piece x={treasuryX} y={treasuryY} className="nation-value" title={`${nation.name} treasury ${state.treasury} million`}>
+                  {state.treasury}
+                </Piece>
+                {government ? (
+                  <Piece x={ownerX} y={ownerY} className="owner-piece" title={ownerNote(board, nation.id, nation.name)}>
+                    <img src={tokenSrc(government.seat)} alt={`${government.username ?? "Player"} governs ${nation.name}`} />
+                  </Piece>
+                ) : null}
+              </span>
+            );
+          })}
           {board.turn ? (
             <Piece x={slot(`${board.turn.nationId}_pawn`)[0]} y={slot(`${board.turn.nationId}_pawn`)[1]} className="turn-piece" title="Turn marker">
               <img src="/art/turn_marker.png" alt="" />
@@ -282,77 +321,59 @@ export function Board({ board }: { board: BoardView }) {
 
 export function PlayerPanel({ board, onTreasury }: { board: BoardView; onTreasury?: (nationId: string) => void }) {
   return (
-    <section className="card player-panel">
+    <section className="player-board" aria-label="Players">
       <h2>Players</h2>
-      <ul className="account-list">
-        {board.players.map((player) => (
-          <li key={player.seat}>
-            <h3>
-              {player.username ?? "Open seat"}
-              {player.you ? " (you)" : ""}
-            </h3>
-            <dl>
-              <div>
-                <dt>Cash</dt>
-                <dd>{player.cash === null ? "Hidden" : `${player.cash} million`}</dd>
-              </div>
-              <div>
-                <dt>Bonds</dt>
-                <dd>
-                  {player.bonds.length === 0
-                    ? "None"
-                    : player.bonds
-                        .map((bond) => `${NATIONS.find((nation) => nation.id === bond.nation)?.name ?? bond.nation} ${bond.price}`)
-                        .join(", ")}
-                </dd>
-              </div>
-              <div>
-                <dt>Investor</dt>
-                <dd>
-                  {player.investor ? <img className="panel-icon" src="/art/investor.png" alt="Investor" /> : "No"}
-                </dd>
-              </div>
-              <div>
-                <dt>Swiss bank</dt>
-                <dd>
-                  {player.swissBank ? <img className="panel-icon" src="/art/swiss_bank.png" alt="Swiss bank" /> : "No"}
-                </dd>
-              </div>
-            </dl>
-          </li>
-        ))}
-      </ul>
-      <h2>Nations</h2>
-      <ul className="account-list">
-        {board.nations.map((nation) => {
-          const meta = NATIONS.find((item) => item.id === nation.id);
-          const government = board.players.find((player) => player.seat === nation.government);
+      <div className="player-grid">
+        {board.players.map((player) => {
+          const governed = board.nations.filter((nation) => nation.government === player.seat);
           return (
-            <li key={nation.id}>
-              <h3>{meta?.name ?? nation.id}</h3>
+            <article className="card player-card" key={player.seat}>
+              <h3 className="player-name">
+                <img src={tokenSrc(player.seat)} alt="" />
+                <span>
+                  {player.username ?? "Open seat"}
+                  {player.you ? " (you)" : ""}
+                </span>
+              </h3>
               <dl>
                 <div>
-                  <dt>Treasury</dt>
-                  <dd>{nation.treasury} million</dd>
+                  <dt>Cash</dt>
+                  <dd>{player.cash === null ? "Hidden" : `${player.cash} million`}</dd>
                 </div>
                 <div>
-                  <dt>Power</dt>
-                  <dd>{nation.score}</dd>
+                  <dt>Bonds</dt>
+                  <dd>
+                    {player.bonds.length === 0
+                      ? "None"
+                      : player.bonds
+                          .map((bond) => `${NATIONS.find((nation) => nation.id === bond.nation)?.name ?? bond.nation} ${bond.price}`)
+                          .join(", ")}
+                  </dd>
                 </div>
                 <div>
-                  <dt>Government</dt>
-                  <dd>{government?.username ?? "None"}</dd>
+                  <dt>Investor</dt>
+                  <dd>
+                    {player.investor ? <img className="panel-icon" src="/art/investor.png" alt="Investor" /> : "No"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Swiss bank</dt>
+                  <dd>
+                    {player.swissBank ? <img className="panel-icon" src="/art/swiss_bank.png" alt="Swiss bank" /> : "No"}
+                  </dd>
                 </div>
               </dl>
-              {government?.you && onTreasury && (government.cash ?? 0) >= 1 ? (
-                <button type="button" className="quiet" onClick={() => onTreasury(nation.id)}>
-                  Pay 1 million
-                </button>
-              ) : null}
-            </li>
+              {player.you && onTreasury && (player.cash ?? 0) >= 1
+                ? governed.map((nation) => (
+                    <button key={nation.id} type="button" className="quiet" onClick={() => onTreasury(nation.id)}>
+                      Pay 1 million to {NATIONS.find((item) => item.id === nation.id)?.name ?? nation.id}
+                    </button>
+                  ))
+                : null}
+            </article>
           );
         })}
-      </ul>
+      </div>
     </section>
   );
 }

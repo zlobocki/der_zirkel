@@ -153,6 +153,8 @@ export type BoardView = {
     government: number | null;
     factories: Array<{ region: string; kind: "land" | "sea" }>;
     rondelIndex: number | null;
+    taxation: number;
+    bondsForSale: Array<{ interest: number; price: number }>;
   }>;
   units: Array<{
     id: string;

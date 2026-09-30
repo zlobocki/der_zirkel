@@ -233,15 +233,43 @@ button.quiet {
 }
 
 .play-layout {
+  display: block;
+}
+
+.player-board {
+  margin-top: 1rem;
+}
+
+.player-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 18rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
-  align-items: start;
+}
+
+.player-card {
+  margin-top: 0;
+}
+
+.player-name {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.player-name img {
+  height: 2.4rem;
+  width: auto;
+}
+
+.player-card button {
+  margin-top: 0.8rem;
 }
 
 .board-window {
   position: relative;
-  height: min(72vh, 740px);
+  width: 100%;
+  aspect-ratio: 354.01248 / 242.60411;
+  height: auto;
   overflow: hidden;
   background: #140e0b;
   border: 1px solid #e4c27a;
@@ -274,6 +302,7 @@ button.quiet {
 .board-frame {
   position: relative;
   background: #1c120c;
+  container-type: inline-size;
 }
 
 .board-image {
@@ -322,7 +351,26 @@ button.quiet {
 }
 
 .turn-piece {
-  width: 1.8%;
+  width: 3.4%;
+}
+
+.owner-piece {
+  width: 4.2%;
+  z-index: 2;
+}
+
+.owner-piece img {
+  display: block;
+  width: 100%;
+}
+
+.nation-value {
+  z-index: 2;
+  color: #1c100c;
+  font-family: "Germania One", "Palatino Linotype", Palatino, serif;
+  font-size: 2.5cqi;
+  line-height: 1;
+  text-shadow: 0 0 2px #fff;
 }
 
 .marker {
@@ -339,7 +387,7 @@ button.quiet {
 }
 
 @media (max-width: 800px) {
-  .play-layout {
+  .player-grid {
     grid-template-columns: 1fr;
   }
 

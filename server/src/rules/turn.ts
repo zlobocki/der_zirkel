@@ -282,6 +282,10 @@ function canPayInterest(board: Board, nationId: NationId): boolean {
   return payInterest(structuredClone(board), nationId) === null;
 }
 
+export function nationTaxation(board: Board, nationId: NationId): number {
+  return taxRevenue(board, nationId);
+}
+
 function taxRevenue(board: Board, nationId: NationId): number {
   const nation = board.nations.find((entry) => entry.id === nationId);
   if (!nation) {

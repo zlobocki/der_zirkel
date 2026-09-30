@@ -4,9 +4,9 @@ import type postgres from "postgres";
 import { z } from "zod";
 import { clearAuthCookie, fieldError, loadSessionUser, type SessionUser } from "./auth.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
-import { NATION_ORDER, type NationId } from "./rules/constants.js";
+import { NATION_ORDER, bondPrice, type NationId } from "./rules/constants.js";
 import { actorSeat, availableBonds, chooseBond, openingPiles, type DraftCursor } from "./rules/draft.js";
-import { describeTurn, ensurePlay, performTurn, scoreboard, type Board, type TurnCommand } from "./rules/turn.js";
+import { describeTurn, ensurePlay, nationTaxation, performTurn, scoreboard, type Board, type TurnCommand } from "./rules/turn.js";
 
 type GameOptions = {
   sql: postgres.Sql | null;
@@ -191,7 +191,13 @@ function boardForViewer(board: Board | null, userId: string) {
       }
     : null;
   return {
-    nations: board.nations,
+    nations: board.nations.map((nation) => ({
+      ...nation,
+      taxation: nationTaxation(board, nation.id),
+      bondsForSale: [...(board.piles[nation.id] ?? [])]
+        .sort((left, right) => left - right)
+        .map((interest) => ({ interest, price: bondPrice(interest) ?? 0 })),
+    })),
     players: board.players.map((player) => ({
       seat: player.seat,
       kind: player.kind,

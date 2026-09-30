@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OVERLAY = ROOT / "web/public/art-src/Assets/game_board_overlay.svg"
+OVERLAY = ROOT / "game_board_overlay_v3.svg"
 OUTPUT = ROOT / "web/src/board/slots.json"
 SVG = "{http://www.w3.org/2000/svg}"
 KEEP = re.compile(
@@ -84,6 +84,20 @@ def main() -> None:
             bucket = groups.setdefault(label, [])
             if point not in bucket:
                 bucket.append(point)
+    # The "Rondelcenter" label sits on the word above the hole. The marker belongs
+    # on the cyan circle that is the wheel's center.
+    for element in root.iter(SVG + "circle"):
+        if element.get("id") != "circle2912":
+            continue
+        x = float(element.get("cx") or 0)
+        y = float(element.get("cy") or 0)
+        node = element
+        while node is not None:
+            for operation in parse_transform(node.get("transform")):
+                x, y = apply_operation(operation, x, y)
+            node = parent.get(node)
+        slots["Rondelcenter"] = [round(x, 2), round(y, 2)]
+        break
     for label, points in groups.items():
         current = slots.get(label)
         if current in points:

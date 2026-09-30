@@ -36,18 +36,26 @@ const ART: Record<(typeof NATIONS)[number]["id"], { army: string; fleet: string;
   rus: { army: "army_russia.svg", fleet: "fleet_russia.svg", flag: "flag_russia.png" },
 };
 
+// Cyan circle in game_board_overlay_v3.svg after group g4118's scale-and-shift.
+// Spokes stay on the same clock: Taxation is the first wedge clockwise from 12 o'clock.
+const RONDEL_CX = 69.7904;
+const RONDEL_CY = 29.1558;
+const RONDEL_SCALE = 1.0594955;
+
+function rondelAngle(index: number): number {
+  return ((index * 45 - 67.5) * Math.PI) / 180;
+}
+
 function rondelPoint(index: number): [number, number] {
-  // The printed wheel has a spoke at 12 o'clock. Taxation is the next wedge
-  // clockwise, then Factory, Production, Maneuver, Investor, Import, Production, Maneuver.
-  const angle = ((index * 45 - 67.5) * Math.PI) / 180;
-  const radius = 13;
-  return [70.21 + Math.cos(angle) * radius, 28.34 + Math.sin(angle) * radius];
+  const angle = rondelAngle(index);
+  const radius = 13 * RONDEL_SCALE;
+  return [RONDEL_CX + Math.cos(angle) * radius, RONDEL_CY + Math.sin(angle) * radius];
 }
 
 function rondelCostPoint(index: number): [number, number] {
-  const angle = ((index * 45 - 67.5) * Math.PI) / 180;
-  const radius = 15;
-  return [70.21 + Math.cos(angle) * radius, 28.34 + Math.sin(angle) * radius];
+  const angle = rondelAngle(index);
+  const radius = 15 * RONDEL_SCALE;
+  return [RONDEL_CX + Math.cos(angle) * radius, RONDEL_CY + Math.sin(angle) * radius];
 }
 
 function rondelCostText(label: string): string | null {
@@ -127,17 +135,17 @@ function Piece({
 }
 
 function sectorPath(index: number): string {
-  const center = ((index * 45 - 67.5) * Math.PI) / 180;
+  const center = rondelAngle(index);
   const start = center - (22.5 * Math.PI) / 180;
   const end = center + (22.5 * Math.PI) / 180;
-  const cx = 70.21;
-  const cy = 28.34;
-  const arc = (radius: number, angle: number) => [cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius];
-  const [x0, y0] = arc(23, start);
-  const [x1, y1] = arc(23, end);
-  const [x2, y2] = arc(7, end);
-  const [x3, y3] = arc(7, start);
-  return `M ${x0} ${y0} A 23 23 0 0 1 ${x1} ${y1} L ${x2} ${y2} A 7 7 0 0 0 ${x3} ${y3} Z`;
+  const outer = 23 * RONDEL_SCALE;
+  const inner = 7 * RONDEL_SCALE;
+  const arc = (radius: number, angle: number) => [RONDEL_CX + Math.cos(angle) * radius, RONDEL_CY + Math.sin(angle) * radius];
+  const [x0, y0] = arc(outer, start);
+  const [x1, y1] = arc(outer, end);
+  const [x2, y2] = arc(inner, end);
+  const [x3, y3] = arc(inner, start);
+  return `M ${x0} ${y0} A ${outer} ${outer} 0 0 1 ${x1} ${y1} L ${x2} ${y2} A ${inner} ${inner} 0 0 0 ${x3} ${y3} Z`;
 }
 
 type MoveCommand = { unitId: string; region: string; posture?: "hostile" | "friendly"; label: string };

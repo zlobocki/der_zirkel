@@ -359,6 +359,18 @@ button.bond-raise img {
   box-shadow: 0 0 0 3px #f5d90a;
 }
 
+.bond-intent {
+  margin-bottom: 0.2rem;
+}
+
+button.intent-buy {
+  box-shadow: inset 0 0 0 2px #39ff14;
+}
+
+button.intent-raise {
+  box-shadow: inset 0 0 0 2px #f5d90a;
+}
+
 .board-window {
   position: relative;
   width: 100%;
@@ -482,6 +494,15 @@ button.bond-raise img {
   fill: rgba(61, 255, 80, 0.55);
 }
 
+.rondel-cost {
+  pointer-events: none;
+  fill: #fff8e8;
+  stroke: #1a0d08;
+  stroke-width: 0.45;
+  paint-order: stroke fill;
+  font-family: "Germania One", "Palatino Linotype", Palatino, serif;
+}
+
 .move-dot {
   z-index: 5;
   width: 1.7%;
@@ -526,6 +547,7 @@ button.bond-raise img {
   font-size: 2.5cqi;
   line-height: 1;
   text-shadow: 0 0 2px #fff;
+  transform: translate(-50%, -72%);
 }
 
 .marker {

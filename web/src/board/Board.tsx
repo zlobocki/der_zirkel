@@ -44,6 +44,17 @@ function rondelPoint(index: number): [number, number] {
   return [70.21 + Math.cos(angle) * radius, 28.34 + Math.sin(angle) * radius];
 }
 
+function rondelCostPoint(index: number): [number, number] {
+  const angle = ((index * 45 - 67.5) * Math.PI) / 180;
+  const radius = 15;
+  return [70.21 + Math.cos(angle) * radius, 28.34 + Math.sin(angle) * radius];
+}
+
+function rondelCostText(label: string): string | null {
+  const found = /(\d+) million/.exec(label);
+  return found?.[1] ? `+${found[1]}M` : null;
+}
+
 function tokenSrc(seat: number): string {
   return `/art/player_token_${seat + 1}.png`;
 }
@@ -442,16 +453,24 @@ export function Board({ board, onCommand }: { board: BoardView; onCommand?: (com
                 if (!Number.isInteger(index)) {
                   return null;
                 }
+                const cost = rondelCostText(choice.label);
+                const [costX, costY] = rondelCostPoint(index);
                 return (
-                  <path
-                    key={index}
-                    d={sectorPath(index)}
-                    className="rondel-hit"
-                    aria-label={choice.label}
-                    onClick={() => onCommand?.({ action: "rondel", index })}
-                  >
-                    <title>{choice.label}</title>
-                  </path>
+                  <g key={index}>
+                    <path
+                      d={sectorPath(index)}
+                      className="rondel-hit"
+                      aria-label={choice.label}
+                      onClick={() => onCommand?.({ action: "rondel", index })}
+                    >
+                      <title>{choice.label}</title>
+                    </path>
+                    {cost ? (
+                      <text className="rondel-cost" x={costX} y={costY} textAnchor="middle" dominantBaseline="central" fontSize="3.4">
+                        {cost}
+                      </text>
+                    ) : null}
+                  </g>
                 );
               })}
             </svg>

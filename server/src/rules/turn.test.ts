@@ -91,6 +91,7 @@ describe("nation turns", () => {
     const austria = taxed.nations.find((nation) => nation.id === "ah");
     expect(austria).toMatchObject({ treasury: 4, score: 0, tax: "tax_2-5", rondel: "rondel_0" });
     expect(taxed.turn?.phase).toBe("confirm");
+    expect(describeTurn(taxed, 0)?.prompt).toBe("Austria-Hungary's turn is finished.");
 
     const undone = ok(performTurn(taxed, 0, { action: "undo" }));
     expect(undone.nations.find((nation) => nation.id === "ah")).toMatchObject({ treasury: 0, rondel: "Rondelcenter" });
@@ -293,7 +294,7 @@ describe("nation turns", () => {
     expect(interests).not.toContain(6);
   });
 
-  it("raises a bond the player already holds instead of selling a second one", () => {
+  it("sells another bond at full price and can also raise the one already held", () => {
     const started = game({
       players: [
         player(0, 20, { bonds: [{ nation: "ah", interest: 2, price: 4 }], investor: true, swissBank: false }),
@@ -303,18 +304,36 @@ describe("nation turns", () => {
     started.piles.ah = started.piles.ah.filter((interest) => interest !== 2);
     const invested = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
     expect(invested.players[0]?.cash).toBe(22);
-    const raises = (describeTurn(invested, 0)?.choices ?? []).flatMap((entry) => {
-      const command = entry.command;
-      if (command.action !== "invest" || command.nationId !== "ah" || command.replaceInterest !== 2) {
-        return [];
-      }
-      return [command.interest];
-    });
+    const choices = describeTurn(invested, 0)?.choices ?? [];
+    const interests = (replaceInterest: number | null) =>
+      choices.flatMap((entry) => {
+        const command = entry.command;
+        if (command.action !== "invest" || command.nationId !== "ah" || command.replaceInterest !== replaceInterest) {
+          return [];
+        }
+        return [command.interest];
+      });
+    const buys = interests(null);
+    const raises = interests(2);
+    expect(buys).toContain(1);
+    expect(buys).toContain(5);
+    expect(buys).not.toContain(8);
+    expect(raises).toContain(5);
     expect(raises).toContain(8);
     expect(raises).not.toContain(9);
-    expect(performTurn(invested, 0, { action: "invest", nationId: "ah", interest: 3, replaceInterest: null })).toMatchObject({
-      error: "Raise the bond you already hold in that nation.",
-    });
+    const bought = ok(performTurn(invested, 0, { action: "invest", nationId: "ah", interest: 1, replaceInterest: null }));
+    expect(bought.players[0]?.cash).toBe(20);
+    expect(bought.players[0]?.bonds).toEqual(
+      expect.arrayContaining([
+        { nation: "ah", interest: 2, price: 4 },
+        { nation: "ah", interest: 1, price: 2 },
+      ]),
+    );
+    const raised = ok(performTurn(invested, 0, { action: "invest", nationId: "ah", interest: 5, replaceInterest: 2 }));
+    expect(raised.players[0]?.cash).toBe(14);
+    expect(raised.players[0]?.bonds).toEqual([{ nation: "ah", interest: 5, price: 12 }]);
+    expect(raised.piles.ah).toContain(2);
+    expect(raised.piles.ah).not.toContain(5);
   });
 
   it("lets the Swiss bank stop a move that passes Investor", () => {

@@ -83,12 +83,22 @@ function shownChoices(turn: NonNullable<BoardView["turn"]>) {
   return turn.choices;
 }
 
-function bondOffer(choices: NonNullable<BoardView["turn"]>["choices"], nationId: string, interest: number) {
-  const matches = choices.filter((choice) => {
+type BondIntent = "buy" | "raise";
+
+function bondOffer(
+  choices: NonNullable<BoardView["turn"]>["choices"],
+  nationId: string,
+  interest: number,
+  intent: BondIntent,
+) {
+  return choices.find((choice) => {
     const command = choice.command;
-    return command.action === "invest" && command.nationId === nationId && command.interest === interest;
+    if (command.action !== "invest" || command.nationId !== nationId || command.interest !== interest) {
+      return false;
+    }
+    const raising = command.replaceInterest != null;
+    return intent === "raise" ? raising : !raising;
   });
-  return matches.find((choice) => choice.command.replaceInterest != null) ?? matches[0];
 }
 
 function BondMarket({
@@ -101,45 +111,77 @@ function BondMarket({
   onAct: (command: Record<string, unknown>) => void;
 }) {
   const turn = board.turn;
-  if (!turn || turn.phase !== "invest") {
+  const [intent, setIntent] = useState<BondIntent | null>(null);
+  const investing = turn?.phase === "invest";
+  const actor = turn?.actorSeat ?? null;
+  useEffect(() => {
+    setIntent(null);
+  }, [actor, investing]);
+  if (!turn || !investing) {
     return null;
   }
+  const canBuy = turn.yours && turn.choices.some((choice) => choice.command.action === "invest" && choice.command.interest != null && choice.command.replaceInterest == null);
+  const canRaise = turn.yours && turn.choices.some((choice) => choice.command.action === "invest" && choice.command.replaceInterest != null);
   return (
-    <div className="bond-market" aria-label="Bonds for sale">
-      {NATIONS.map((nation) => {
-        const sale = board.nations.find((entry) => entry.id === nation.id)?.bondsForSale ?? [];
-        return (
-          <div className="bond-row" key={nation.id}>
-            <span className="bond-row-name">{nation.name}</span>
-            <div className="bond-row-cards">
-              {sale.map((bond) => {
-                const offer = turn.yours ? bondOffer(turn.choices, nation.id, bond.interest) : undefined;
-                const raising = offer?.command.replaceInterest != null;
-                const buying = Boolean(offer) && !raising;
-                return (
-                  <button
-                    key={bond.interest}
-                    type="button"
-                    className={`bond-offer${buying ? " bond-buy" : ""}${raising ? " bond-raise" : ""}`}
-                    disabled={pending || !offer}
-                    title={offer?.label ?? `${nation.name} ${bond.price} million`}
-                    data-nation={nation.id}
-                    data-interest={bond.interest}
-                    onClick={() => {
-                      if (offer) {
-                        onAct(offer.command);
-                      }
-                    }}
-                  >
-                    <img src={bondSrc(nation.id, bond.interest)} alt={`${nation.name} ${bond.price} million`} />
-                  </button>
-                );
-              })}
+    <>
+      {turn.yours ? (
+        <div className="row-actions bond-intent">
+          <button
+            type="button"
+            className={intent === "buy" ? "intent-buy" : ""}
+            aria-pressed={intent === "buy"}
+            disabled={pending || !canBuy}
+            onClick={() => setIntent("buy")}
+          >
+            Buy a bond
+          </button>
+          <button
+            type="button"
+            className={intent === "raise" ? "intent-raise" : ""}
+            aria-pressed={intent === "raise"}
+            disabled={pending || !canRaise}
+            onClick={() => setIntent("raise")}
+          >
+            Upgrade a bond
+          </button>
+        </div>
+      ) : null}
+      <div className="bond-market" aria-label="Bonds for sale">
+        {NATIONS.map((nation) => {
+          const sale = board.nations.find((entry) => entry.id === nation.id)?.bondsForSale ?? [];
+          return (
+            <div className="bond-row" key={nation.id}>
+              <span className="bond-row-name">{nation.name}</span>
+              <div className="bond-row-cards">
+                {sale.map((bond) => {
+                  const offer = turn.yours && intent ? bondOffer(turn.choices, nation.id, bond.interest, intent) : undefined;
+                  const buying = intent === "buy" && Boolean(offer);
+                  const raising = intent === "raise" && Boolean(offer);
+                  return (
+                    <button
+                      key={bond.interest}
+                      type="button"
+                      className={`bond-offer${buying ? " bond-buy" : ""}${raising ? " bond-raise" : ""}`}
+                      disabled={pending || !offer}
+                      title={offer?.label ?? `${nation.name} ${bond.price} million`}
+                      data-nation={nation.id}
+                      data-interest={bond.interest}
+                      onClick={() => {
+                        if (offer) {
+                          onAct(offer.command);
+                        }
+                      }}
+                    >
+                      <img src={bondSrc(nation.id, bond.interest)} alt={`${nation.name} ${bond.price} million`} />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -218,7 +260,7 @@ function NationTurn({
       {canPay ? (
         <p className="row-actions">
           <button type="button" disabled={pending} onClick={() => onAct({ action: "treasury", nationId: turn.nationId })}>
-            Pay 1 million to {nationName}
+            Transfer 1 million of your money to {nationName}
           </button>
         </p>
       ) : null}

@@ -1005,9 +1005,6 @@ function buyBond(board: Board, seat: number, nationId: NationId, interest: numbe
   if (price === null || !pile?.includes(interest) || !player || !nation) {
     return "That bond has already been taken.";
   }
-  if (replace === null && player.bonds.some((bond) => bond.nation === nationId)) {
-    return "Raise the bond you already hold in that nation.";
-  }
   if (replace !== null) {
     const held = player.bonds.find((bond) => bond.nation === nationId && bond.interest === replace);
     if (!held) {
@@ -1227,21 +1224,20 @@ function investmentChoices(board: Board, seat: number): Array<{ nationId: Nation
       const held = player.bonds
         .filter((bond) => bond.nation === nationId)
         .reduce<BoardPlayer["bonds"][number] | null>((best, bond) => (best === null || bond.price > best.price ? bond : best), null);
-      if (held) {
-        if (held.price < price) {
-          const difference = price - held.price;
-          if (player.cash >= difference) {
-            choices.push({
-              nationId,
-              interest,
-              replaceInterest: held.interest,
-              price: difference,
-              label: `Raise ${name} ${held.price} to ${price}`,
-            });
-          }
-        }
-      } else if (player.cash >= price) {
+      if (player.cash >= price) {
         choices.push({ nationId, interest, replaceInterest: null, price, label: `${name} ${price} million` });
+      }
+      if (held && held.price < price) {
+        const difference = price - held.price;
+        if (player.cash >= difference) {
+          choices.push({
+            nationId,
+            interest,
+            replaceInterest: held.interest,
+            price: difference,
+            label: `Raise ${name} ${held.price} to ${price}`,
+          });
+        }
       }
     }
   }
@@ -1523,7 +1519,7 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     ];
   } else if (turn.phase === "invest") {
     const seat = turn.investors[0];
-    base.prompt = seat === viewerSeat ? "Grant one bond, or pass. The price goes into that treasury." : "A bond may be granted.";
+    base.prompt = seat === viewerSeat ? "Buy a bond at its printed price, or upgrade a bond you hold. The money goes into that treasury." : "A bond may be granted.";
     if (seat !== undefined) {
       base.choices = [
         ...investmentChoices(board, seat).map((entry) =>
@@ -1533,7 +1529,7 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
       ];
     }
   } else if (turn.phase === "confirm") {
-    base.prompt = `${name}'s turn is ready to store.`;
+    base.prompt = `${name}'s turn is finished.`;
     base.choices = [choice("Confirm", { action: "confirm" })];
   }
   return base;

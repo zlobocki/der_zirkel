@@ -143,6 +143,10 @@ export function cancelGame(id: string): Promise<{ ok: boolean }> {
   return request(`/api/games/${id}/cancel`, { method: "POST" });
 }
 
+export function deleteGame(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/games/${id}/delete`, { method: "POST" });
+}
+
 export type BoardView = {
   nations: Array<{
     id: string;

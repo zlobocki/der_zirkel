@@ -105,6 +105,29 @@ describe("nation turns", () => {
     expect(moved.turn?.phase).toBe("factory");
   });
 
+  it("offers Austria-Hungary's empty home cities on the first factory action", () => {
+    const short = game({ treasury: { ah: 2 } });
+    const waiting = ok(performTurn(short, 0, { action: "rondel", index: 1 }));
+    expect(waiting.turn?.phase).toBe("factory");
+    expect(describeTurn(waiting, 0)?.prompt).toBe("Austria-Hungary needs 5 million in the treasury before a factory can be built.");
+    expect(describeTurn(waiting, 0)?.choices.map((choice) => choice.label)).toEqual(["Build nothing"]);
+
+    const started = game({ treasury: { ah: 6 } });
+    const building = ok(performTurn(started, 0, { action: "rondel", index: 1 }));
+    const labels = describeTurn(building, 0)?.choices.map((choice) => choice.label) ?? [];
+    expect(labels).toContain("Factory in Prague");
+    expect(labels).toContain("Factory in Lemberg");
+    expect(labels).toContain("Shipyard in Trieste");
+    expect(labels).toContain("Build nothing");
+    expect(labels.join(" ")).not.toContain("Vienna");
+    expect(labels.join(" ")).not.toContain("Budapest");
+    const built = ok(performTurn(building, 0, { action: "factory", region: "LR15" }));
+    expect(built.nations.find((nation) => nation.id === "ah")?.treasury).toBe(1);
+    expect(built.nations.find((nation) => nation.id === "ah")?.factories.map((factory) => factory.region)).toEqual(
+      expect.arrayContaining(["LR14", "LR16", "LR15"]),
+    );
+  });
+
   it("lets Germany build in an unblocked home city", () => {
     const hostile: Unit = { id: "u1", nation: "fra", kind: "army", region: "LR10", harbor: false, posture: "hostile" };
     const started = game({

@@ -490,6 +490,32 @@ export function Board({ board, onCommand }: { board: BoardView; onCommand?: (com
               <img src="/art/turn_marker.png" alt="" />
             </Piece>
           ) : null}
+          {board.turn?.yours && board.turn.phase === "factory"
+            ? board.turn.choices.map((choice) => {
+                const region = choice.command.region;
+                if (choice.command.action !== "factory" || typeof region !== "string") {
+                  return null;
+                }
+                const kind = choice.label.startsWith("Shipyard") ? "sea" : "land";
+                const point = SLOTS[`${region}_${kind}_f`];
+                if (!point) {
+                  return null;
+                }
+                return (
+                  <Piece
+                    key={`factory-${region}`}
+                    x={point[0]}
+                    y={point[1]}
+                    className="move-dot"
+                    regionId={region}
+                    title={choice.label}
+                    onClick={() => onCommand?.({ action: "factory", region })}
+                  >
+                    <span />
+                  </Piece>
+                );
+              })
+            : null}
           {rondelChoices.length > 0 ? (
             <svg className="rondel-layer" viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}>
               {rondelChoices.map((choice) => {

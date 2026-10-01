@@ -422,7 +422,7 @@ function executeRondel(board: Board, index: number, cost: number): string | null
     return resolveProduction(board);
   }
   if (space === "factory") {
-    if (!canBuild(board, nation.id)) {
+    if (factorySites(board, nation.id).length === 0) {
       return afterAction(board);
     }
     board.turn.phase = "factory";
@@ -1090,7 +1090,7 @@ function finishInvest(board: Board): void {
 function invest(board: Board, nationId: NationId | null, interest: number | null, replace: number | null): string | null {
   const seat = board.turn?.investors[0];
   if (seat === undefined) {
-    return "No bond is being granted.";
+    return "No bond is being bought.";
   }
   if (nationId !== null && interest !== null) {
     const error = buyBond(board, seat, nationId, interest, replace);
@@ -1167,7 +1167,7 @@ function dispatch(board: Board, command: TurnCommand): string | null {
     case "destroy":
       return turn.phase === "destroy" ? destroyFactory(board, command.region) : "No factory is being destroyed.";
     case "invest":
-      return turn.phase === "invest" ? invest(board, command.nationId, command.interest, command.replaceInterest) : "No bond is being granted.";
+      return turn.phase === "invest" ? invest(board, command.nationId, command.interest, command.replaceInterest) : "No bond is being bought.";
     case "confirm":
       return confirmTurn(board);
     default:
@@ -1260,7 +1260,9 @@ function aiCommand(board: Board): TurnCommand {
     return { action: "veto", block: false };
   }
   if (turn.phase === "factory") {
-    return { action: "factory", region: factorySites(board, turn.nationId)[0]?.region ?? null };
+    const nation = activeNation(board);
+    const site = nation.treasury >= 5 ? factorySites(board, turn.nationId)[0] : undefined;
+    return { action: "factory", region: site?.region ?? null };
   }
   if (turn.phase === "import") {
     const site = importSites(board, turn.nationId, "army")[0];
@@ -1455,11 +1457,17 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     base.prompt = `The Swiss bank may force ${name} to stop on Investor.`;
     base.choices = [choice("Allow the move", { action: "veto", block: false }), choice("Stop on Investor", { action: "veto", block: true })];
   } else if (turn.phase === "factory") {
-    base.prompt = `${name} may build one factory for 5 million.`;
+    const sites = factorySites(board, turn.nationId);
+    const affordable = activeNation(board).treasury >= 5;
+    base.prompt = affordable
+      ? `${name} may build one factory for 5 million.`
+      : `${name} needs 5 million in the treasury before a factory can be built.`;
     base.choices = [
-      ...factorySites(board, turn.nationId).map((site) =>
-        choice(`${site.kind === "sea" ? "Shipyard" : "Factory"} in ${regionName(site.region)}`, { action: "factory", region: site.region }),
-      ),
+      ...(affordable
+        ? sites.map((site) =>
+            choice(`${site.kind === "sea" ? "Shipyard" : "Factory"} in ${regionName(site.region)}`, { action: "factory", region: site.region }),
+          )
+        : []),
       choice("Build nothing", { action: "factory", region: null }),
     ];
   } else if (turn.phase === "import") {
@@ -1519,7 +1527,7 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     ];
   } else if (turn.phase === "invest") {
     const seat = turn.investors[0];
-    base.prompt = seat === viewerSeat ? "Buy a bond at its printed price, or upgrade a bond you hold. The money goes into that treasury." : "A bond may be granted.";
+    base.prompt = seat === viewerSeat ? "Buy a bond at its printed price, or upgrade a bond you hold. The money goes into that treasury." : "A bond may be bought.";
     if (seat !== undefined) {
       base.choices = [
         ...investmentChoices(board, seat).map((entry) =>

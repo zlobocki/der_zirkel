@@ -34,7 +34,7 @@ function DraftTurn({
         onBoard(result.game.board);
       }
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Could not grant that bond.");
+      setError(caught instanceof ApiError ? caught.message : "Could not buy that bond.");
     } finally {
       setPending(false);
     }
@@ -42,7 +42,7 @@ function DraftTurn({
 
   return (
     <section className="card">
-      <h2>Grant a bond</h2>
+      <h2>Buy a bond</h2>
       <p className="notice">
         {draft.yours
           ? `Choose one ${nation} bond, or pass. The price goes into the ${nation} treasury.`
@@ -73,6 +73,9 @@ function DraftTurn({
 function shownChoices(turn: NonNullable<BoardView["turn"]>) {
   if (!turn.yours || turn.phase === "rondel") {
     return [];
+  }
+  if (turn.phase === "factory") {
+    return turn.choices.filter((choice) => choice.command.action === "factory" && choice.command.region == null);
   }
   if (turn.phase === "fleets" || turn.phase === "armies") {
     return turn.choices.filter((choice) => choice.command.action === "moves-done");
@@ -191,6 +194,9 @@ function turnHint(board: BoardView, turn: NonNullable<BoardView["turn"]>): strin
   }
   if (turn.phase === "rondel" && turn.choices.some((choice) => choice.command.action === "rondel")) {
     return " Click a highlighted space on the rondel.";
+  }
+  if (turn.phase === "factory" && turn.choices.some((choice) => choice.command.action === "factory" && typeof choice.command.region === "string")) {
+    return " Click a green factory space.";
   }
   if (turn.phase === "fleets" || turn.phase === "armies") {
     const canMove = turn.choices.some((choice) => {

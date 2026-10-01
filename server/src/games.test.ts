@@ -259,6 +259,44 @@ describe("lobby", () => {
     expect(tooLate.statusCode).toBe(409);
   });
 
+  it("lets the creator delete a game that has already started", async () => {
+    const ada = await register("Ada", "ada-delete@example.com");
+    const bea = await register("Bea", "bea-delete@example.com");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      headers: { cookie: ada.cookie },
+      payload: { name: "Old Table", password: "open-sesame", humanSeats: 1, aiSeats: 0 },
+    });
+    const gameId = created.json().game.id as string;
+    const denied = await app.inject({
+      method: "POST",
+      url: `/api/games/${gameId}/delete`,
+      headers: { cookie: bea.cookie },
+    });
+    expect(denied.statusCode).toBe(403);
+
+    const deleted = await app.inject({
+      method: "POST",
+      url: `/api/games/${gameId}/delete`,
+      headers: { cookie: ada.cookie },
+    });
+    expect(deleted.statusCode).toBe(200);
+
+    const lobby = await app.inject({ method: "GET", url: "/api/games", headers: { cookie: ada.cookie } });
+    expect(lobby.json().yours).toEqual([]);
+    const missing = await app.inject({ method: "GET", url: `/api/games/${gameId}`, headers: { cookie: ada.cookie } });
+    expect(missing.statusCode).toBe(404);
+
+    const again = await app.inject({
+      method: "POST",
+      url: "/api/games",
+      headers: { cookie: ada.cookie },
+      payload: { name: "Old Table", password: "open-sesame", humanSeats: 1, aiSeats: 0 },
+    });
+    expect(again.statusCode).toBe(201);
+  });
+
   it("lets the first player pass a bond and then the automatic players buy", async () => {
     const ada = await register("Ada", "ada@example.com");
     const created = await app.inject({

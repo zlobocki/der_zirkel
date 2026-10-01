@@ -58,7 +58,7 @@ export function chooseBond<T extends DraftPosition>(position: T, seat: number, i
   }
   const playerCount = position.players.length;
   if (actorSeat(playerCount, position.draft) !== seat) {
-    return { error: "It is not your turn to grant a bond." };
+    return { error: "It is not your turn to buy a bond." };
   }
   const nation = NATION_ORDER[position.draft.nationIndex];
   if (!nation) {
@@ -77,7 +77,7 @@ export function chooseBond<T extends DraftPosition>(position: T, seat: number, i
   const player = players.find((entry) => entry.seat === seat);
   const treasury = nations.find((entry) => entry.id === nation);
   if (!player || !treasury) {
-    return { error: "It is not your turn to grant a bond." };
+    return { error: "It is not your turn to buy a bond." };
   }
   if (interest !== null) {
     const price = bondPrice(interest);

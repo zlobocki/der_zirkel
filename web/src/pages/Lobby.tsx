@@ -5,6 +5,7 @@ import {
   ApiError,
   cancelGame,
   createGame,
+  deleteGame,
   fetchGames,
   joinGame,
   leaveGame,
@@ -85,6 +86,20 @@ export function Lobby() {
     }
   }
 
+  async function onDelete(game: LobbyGame) {
+    if (!window.confirm(`Delete ${game.name}? This removes the game for everyone at the table.`)) {
+      return;
+    }
+    setLoadError(null);
+    try {
+      await deleteGame(game.id);
+      setEntered(null);
+      await load();
+    } catch (caught) {
+      setLoadError(caught instanceof ApiError ? caught.message : "Could not delete the game.");
+    }
+  }
+
   async function onLeave(game: LobbyGame) {
     setLoadError(null);
     try {
@@ -117,6 +132,7 @@ export function Lobby() {
           game={entered}
           onBack={() => setEntered(null)}
           onCancel={() => void onCancel(entered)}
+          onDelete={() => void onDelete(entered)}
           onLeave={() => void onLeave(entered)}
         />
       ) : null}
@@ -173,7 +189,7 @@ export function Lobby() {
         {yours.length === 0 ? <p className="notice">You have no game to enter.</p> : null}
         <ul className="account-list">
           {yours.map((game) => (
-            <GameEntry key={game.id} game={game} action="Enter" onEntered={setEntered} />
+            <GameEntry key={game.id} game={game} action="Enter" onEntered={setEntered} onDelete={() => void onDelete(game)} />
           ))}
         </ul>
       </section>
@@ -194,11 +210,13 @@ function GameRoom({
   game,
   onBack,
   onCancel,
+  onDelete,
   onLeave,
 }: {
   game: LobbyGame;
   onBack: () => void;
   onCancel: () => void;
+  onDelete: () => void;
   onLeave: () => void;
 }) {
   const waiting = game.status === "waiting";
@@ -228,6 +246,11 @@ function GameRoom({
             Cancel game
           </button>
         ) : null}
+        {game.createdByYou ? (
+          <button type="button" className="danger" onClick={onDelete}>
+            Delete game
+          </button>
+        ) : null}
         {waiting && !game.createdByYou && game.yourSeat !== null ? (
           <button type="button" className="quiet" onClick={onLeave}>
             Leave game
@@ -242,10 +265,12 @@ function GameEntry({
   game,
   action,
   onEntered,
+  onDelete,
 }: {
   game: LobbyGame;
   action: "Enter" | "Join";
   onEntered: (game: LobbyGame) => void;
+  onDelete?: () => void;
 }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -301,6 +326,13 @@ function GameEntry({
         </button>
       </form>
       {error ? <p className="error">{error}</p> : null}
+      {onDelete ? (
+        <p className="row-actions">
+          <button type="button" className="danger" onClick={onDelete}>
+            Delete game
+          </button>
+        </p>
+      ) : null}
     </li>
   );
 }

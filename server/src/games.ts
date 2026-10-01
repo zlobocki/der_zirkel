@@ -701,6 +701,36 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
     return reply.code(outcome.status).send(outcome.body);
   });
 
+  app.post("/api/games/:id/delete", async (request, reply) => {
+    const user = await requireUser(request, reply);
+    if (!user || !sql) {
+      return;
+    }
+    const id = idSchema.safeParse((request.params as { id?: string }).id);
+    if (!id.success) {
+      return reply.code(400).send({ error: "That game does not exist." });
+    }
+    const outcome = await sql.begin(async (tx) => {
+      const rows = await tx<GameRow[]>`
+        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash
+        from games g
+        left join users u on u.id = g.created_by
+        where g.id = ${id.data}::uuid
+        for update of g
+      `;
+      const game = rows[0];
+      if (!game?.name) {
+        return { status: 404, body: { error: "That game does not exist." } };
+      }
+      if (game.created_by !== user.id) {
+        return { status: 403, body: { error: "Only the person who created this game can delete it." } };
+      }
+      await tx`delete from games where id = ${game.id}::uuid`;
+      return { status: 200, body: { ok: true } };
+    });
+    return reply.code(outcome.status).send(outcome.body);
+  });
+
   app.post("/api/games/:id/cancel", async (request, reply) => {
     const user = await requireUser(request, reply);
     if (!user || !sql) {

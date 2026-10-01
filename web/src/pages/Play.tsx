@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, fetchGame, grantBond, joinGame, takeTurn, type BoardView, type SeatedGame } from "../api";
-import { Board, NATIONS, PlayerPanel } from "../board/Board";
+import { Board, NATIONS, PlayerPanel, unitMarkers, type Explosion } from "../board/Board";
 import { bondSrc } from "../board/bonds";
+import { armCombatAudio, playCombatSound } from "../board/combat-audio";
 import { useAuth } from "../auth-context";
 import { gameRemembered, rememberGame } from "../open-games";
 
@@ -49,21 +50,30 @@ function DraftTurn({
           : `${actor?.username ?? "The next player"} is choosing a ${nation} bond.`}
       </p>
       {draft.yours ? (
-        <div className="row-actions">
-          {draft.choices.map((choice) => (
-            <button
-              key={choice.interest}
-              type="button"
-              disabled={pending || (cash !== null && cash !== undefined && choice.price > cash)}
-              onClick={() => void choose(choice.interest)}
-            >
-              {choice.price} million
+        <>
+          <div className="draft-bonds">
+            {draft.choices.map((choice) => {
+              const affordable = cash === null || cash === undefined || choice.price <= cash;
+              return (
+                <button
+                  key={choice.interest}
+                  type="button"
+                  className={`bond-offer${affordable ? " bond-buy" : ""}`}
+                  disabled={pending || !affordable}
+                  title={`${nation} ${choice.price} million`}
+                  onClick={() => void choose(choice.interest)}
+                >
+                  <img src={bondSrc(draft.nationId, choice.interest)} alt={`${nation} ${choice.price} million`} />
+                </button>
+              );
+            })}
+          </div>
+          <div className="row-actions">
+            <button type="button" className="quiet" disabled={pending} onClick={() => void choose(null)}>
+              Pass
             </button>
-          ))}
-          <button type="button" className="quiet" disabled={pending} onClick={() => void choose(null)}>
-            Pass
-          </button>
-        </div>
+          </div>
+        </>
       ) : null}
       {error ? <p className="error">{error}</p> : null}
     </section>
@@ -302,18 +312,54 @@ function GameTable({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [explosions, setExplosions] = useState<Explosion[]>([]);
   const busy = useRef(false);
+  const blastTimer = useRef<number | null>(null);
 
   async function act(command: Record<string, unknown>) {
     if (busy.current) {
       return;
     }
+    if (command.action === "fight") {
+      armCombatAudio();
+    }
+    const before = board;
     busy.current = true;
     setError(null);
     setPending(true);
     try {
       const result = await takeTurn(gameId, command);
       if (result.game.board) {
+        if (command.action === "fight") {
+          const gone = new Set(result.game.board.units.map((unit) => unit.id));
+          const removed = new Set(before.units.filter((unit) => !gone.has(unit.id)).map((unit) => unit.id));
+          if (removed.size > 0) {
+            const seen = new Set<string>();
+            const blasts: Explosion[] = [];
+            for (const marker of unitMarkers(before)) {
+              if (!removed.has(marker.id)) {
+                continue;
+              }
+              const key = `${marker.x},${marker.y}`;
+              if (seen.has(key)) {
+                continue;
+              }
+              seen.add(key);
+              blasts.push({ id: `${marker.id}-${Date.now()}`, x: marker.x, y: marker.y });
+            }
+            if (blasts.length > 0) {
+              if (blastTimer.current !== null) {
+                window.clearTimeout(blastTimer.current);
+              }
+              setExplosions(blasts);
+              blastTimer.current = window.setTimeout(() => {
+                setExplosions([]);
+                blastTimer.current = null;
+              }, 1100);
+              void playCombatSound();
+            }
+          }
+        }
         onBoard(result.game.board);
       }
     } catch (caught) {
@@ -332,7 +378,7 @@ function GameTable({
         <NationTurn board={board} pending={pending} error={error} onAct={(command) => void act(command)} />
       )}
       <div className="play-layout">
-        <Board board={board} onCommand={(command) => void act(command)} />
+        <Board board={board} explosions={explosions} onCommand={(command) => void act(command)} />
         <PlayerPanel board={board} />
       </div>
     </>

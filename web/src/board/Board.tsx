@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { bondSrc } from "./bonds";
-import { positionFor, type Point } from "./occupy";
+import { firstEmptySlot, positionFor, type Point } from "./occupy";
 import slotsFile from "./slots.json";
 import type { BoardView } from "../api";
 
@@ -204,15 +204,33 @@ function occupants(board: BoardView): Map<string, string[]> {
 function arrivalSlot(board: BoardView, unit: BoardView["units"][number], region: string): Point {
   const staying = unit.kind === "fleet" && unit.harbor && region === unit.region;
   const key = unit.kind === "fleet" && staying ? `${region}_port` : `${region}_space`;
-  const id = stackId(unit.nation, unit.kind);
+  const points = slotList(key);
   const ids = occupants(board).get(key) ?? [];
+  const empty = firstEmptySlot(points, ids);
+  if (empty) {
+    return empty;
+  }
+  const id = stackId(unit.nation, unit.kind);
   if (ids.includes(id)) {
-    return positionFor(slotList(key), ids, id) ?? slotList(key)[0] ?? [0, 0];
+    return positionFor(points, ids, id) ?? points[0] ?? [0, 0];
   }
   const unitsHere = ids.filter((entry) => !entry.startsWith("flag:"));
   const flag = ids.find((entry) => entry.startsWith("flag:"));
   const order = [...unitsHere, id, ...(flag ? [flag] : [])];
-  return positionFor(slotList(key), order, id) ?? slotList(key)[0] ?? [0, 0];
+  return positionFor(points, order, id) ?? points[0] ?? [0, 0];
+}
+
+export type Explosion = { id: string; x: number; y: number };
+
+export function unitMarkers(board: BoardView): Array<{ id: string; x: number; y: number }> {
+  const laid = occupants(board);
+  return unitStacks(board).flatMap((stack) => {
+    const point = positionFor(slotList(stack.key), laid.get(stack.key) ?? [], stack.id);
+    if (!point) {
+      return [];
+    }
+    return stack.units.map((unit) => ({ id: unit.id, x: point[0], y: point[1] }));
+  });
 }
 
 type Camera = { scale: number; x: number; y: number; baseWidth: number };
@@ -243,7 +261,15 @@ function zoomAt(camera: Camera, px: number, py: number, factor: number): Camera 
   };
 }
 
-export function Board({ board, onCommand }: { board: BoardView; onCommand?: (command: Record<string, unknown>) => void }) {
+export function Board({
+  board,
+  onCommand,
+  explosions = [],
+}: {
+  board: BoardView;
+  onCommand?: (command: Record<string, unknown>) => void;
+  explosions?: Explosion[];
+}) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<Camera>({ scale: 1, x: 0, y: 0, baseWidth: 0 });
   const [camera, setCamera] = useState<Camera>({ scale: 1, x: 0, y: 0, baseWidth: 0 });
@@ -603,6 +629,13 @@ export function Board({ board, onCommand }: { board: BoardView; onCommand?: (com
               </span>
             );
           })}
+          {explosions.map((blast) => (
+            <Piece key={blast.id} x={blast.x} y={blast.y} className="explosion" title="Explosion">
+              <span className="explosion-burst" />
+              <span className="explosion-burst explosion-burst-late" />
+              <span className="explosion-ring" />
+            </Piece>
+          ))}
         </div>
       </div>
       <div className="board-zoom">

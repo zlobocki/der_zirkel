@@ -33,3 +33,15 @@ export function positionFor(points: Point[], ids: string[], id: string): Point |
   }
   return placeInSlots(points, ids.length)[index] ?? null;
 }
+
+/** The first printed slot that no current occupant is standing on. */
+export function firstEmptySlot(points: Point[], occupantIds: string[]): Point | null {
+  const used = new Set<string>();
+  for (const id of occupantIds) {
+    const point = positionFor(points, occupantIds, id);
+    if (point && points.some((slot) => slot[0] === point[0] && slot[1] === point[1])) {
+      used.add(`${point[0]},${point[1]}`);
+    }
+  }
+  return points.find((point) => !used.has(`${point[0]},${point[1]}`)) ?? null;
+}

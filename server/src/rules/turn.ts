@@ -1510,11 +1510,24 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     base.prompt = `${NATION_NAME[actorNation ?? turn.nationId]} may fight in ${region ? regionName(region) : "the region"}, or keep the peace.`;
     if (region && actorNation) {
       const present = combatants(board, region, mode);
-      for (const own of present.filter((unit) => unit.nation === actorNation)) {
-        for (const enemy of present.filter((unit) => unit.nation !== actorNation)) {
-          base.choices.push(
-            choice(`Fight the ${NATION_NAME[enemy.nation]} ${enemy.kind}`, { action: "fight", ownId: own.id, enemyId: enemy.id }),
-          );
+      const own = present.find((unit) => unit.nation === actorNation);
+      const enemies: Unit[] = [];
+      const seen = new Set<string>();
+      for (const enemy of present) {
+        if (enemy.nation === actorNation) {
+          continue;
+        }
+        const key = `${enemy.nation}:${enemy.kind}`;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        enemies.push(enemy);
+      }
+      if (own) {
+        for (const enemy of enemies) {
+          const label = enemies.length === 1 ? `Fight in ${regionName(region)}` : `Fight the ${NATION_NAME[enemy.nation]} ${enemy.kind}`;
+          base.choices.push(choice(label, { action: "fight", ownId: own.id, enemyId: enemy.id }));
         }
       }
     }
@@ -1527,7 +1540,14 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     ];
   } else if (turn.phase === "invest") {
     const seat = turn.investors[0];
-    base.prompt = seat === viewerSeat ? "Buy a bond at its printed price, or upgrade a bond you hold. The money goes into that treasury." : "A bond may be bought.";
+    const holder = board.players.find((player) => player.investor);
+    const passedAsHolder = turn.passedInvestor && holder?.seat === seat;
+    base.prompt =
+      seat !== viewerSeat
+        ? "A bond may be bought."
+        : passedAsHolder
+          ? "Investor was passed, so the nation pays no interest. You hold the Investor card, received 2 million, and may buy or upgrade one bond."
+          : "Buy a bond at its printed price, or upgrade a bond you hold. The money goes into that treasury.";
     if (seat !== undefined) {
       base.choices = [
         ...investmentChoices(board, seat).map((entry) =>

@@ -221,7 +221,10 @@ describe("nation turns", () => {
     const investing = ok(performTurn(passed, 0, { action: "import-done" }));
     expect(investing.nations.find((nation) => nation.id === "ah")?.treasury).toBe(8);
     expect(investing.players[0]?.cash).toBe(22);
+    expect(investing.players[0]?.swissBank).toBe(false);
+    expect(investing.players[0]?.investor).toBe(true);
     expect(investing.turn?.phase).toBe("invest");
+    expect(describeTurn(investing, 0)?.prompt).toContain("You hold the Investor card");
     const done = ok(performTurn(investing, 0, { action: "invest", nationId: null, interest: null, replaceInterest: null }));
     expect(done.players[1]?.investor).toBe(true);
     expect(done.turn?.phase).toBe("confirm");
@@ -368,5 +371,88 @@ describe("nation turns", () => {
     expect(blocked.turn?.phase).toBe("rondel");
     expect(blocked.nations.find((nation) => nation.id === "ah")?.rondel).toBe("rondel_3");
     expect(blocked.players[0]?.cash).toBe(20);
+  });
+
+  it("still offers the investor card holder a bond in a solo game after Investor is passed", () => {
+    const started = game({
+      rondel: { ah: 3 },
+      treasury: { ah: 8 },
+      players: [player(0, 20, { investor: true, swissBank: false })],
+    });
+    const passed = ok(performTurn(started, 0, { action: "rondel", index: 5 }));
+    expect(passed.turn?.phase).toBe("import");
+    const investing = ok(performTurn(passed, 0, { action: "import-done" }));
+    expect(investing.players[0]).toMatchObject({ swissBank: false, investor: true, cash: 22 });
+    expect(investing.turn?.phase).toBe("invest");
+    expect(describeTurn(investing, 0)?.prompt).toContain("You hold the Investor card");
+  });
+
+  it("offers one fight button for a region when several friendly units face one army", () => {
+    const started = game({
+      government: { uk: 0, fra: 1 },
+      units: [
+        { id: "uk1", nation: "uk", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+        { id: "uk2", nation: "uk", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+        { id: "fr1", nation: "fra", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+      ],
+    });
+    const checkpoint = structuredClone(started);
+    checkpoint.turn = null;
+    started.turn = {
+      nationId: "uk",
+      phase: "army-battle",
+      passedInvestor: false,
+      checkpoint,
+      moved: [],
+      imported: 0,
+      battleRegions: ["LR8"],
+      battleNations: [],
+      attackerDone: false,
+      investors: [],
+      vetoSeats: [],
+      pendingIndex: null,
+      hold: false,
+    };
+    const fights = describeTurn(started, 0)?.choices.filter((choice) => choice.command.action === "fight") ?? [];
+    expect(fights.map((choice) => choice.label)).toEqual(["Fight in Belgium"]);
+    const command = fights[0]?.command;
+    if (!command || command.action !== "fight") {
+      throw new Error("missing fight");
+    }
+    const fought = ok(performTurn(started, 0, command));
+    expect(fought.units.filter((unit) => unit.region === "LR8" && unit.nation === "uk")).toHaveLength(1);
+    expect(fought.units.filter((unit) => unit.nation === "fra")).toHaveLength(0);
+    expect(fought.turn?.phase).not.toBe("army-battle");
+  });
+
+  it("offers one fight button for each opposing nation in a region", () => {
+    const started = game({
+      government: { uk: 0, fra: 1, ger: 1 },
+      units: [
+        { id: "uk1", nation: "uk", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+        { id: "uk2", nation: "uk", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+        { id: "fr1", nation: "fra", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+        { id: "ge1", nation: "ger", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+      ],
+    });
+    const checkpoint = structuredClone(started);
+    checkpoint.turn = null;
+    started.turn = {
+      nationId: "uk",
+      phase: "army-battle",
+      passedInvestor: false,
+      checkpoint,
+      moved: [],
+      imported: 0,
+      battleRegions: ["LR8"],
+      battleNations: [],
+      attackerDone: false,
+      investors: [],
+      vetoSeats: [],
+      pendingIndex: null,
+      hold: false,
+    };
+    const fights = describeTurn(started, 0)?.choices.filter((choice) => choice.command.action === "fight") ?? [];
+    expect(fights.map((choice) => choice.label)).toEqual(["Fight the France army", "Fight the Germany army"]);
   });
 });

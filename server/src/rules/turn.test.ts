@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NATION_ORDER, type NationId } from "./constants.js";
 import { openingPiles } from "./draft.js";
-import { describeTurn, ensurePlay, performTurn, type Board, type BoardPlayer, type Unit } from "./turn.js";
+import { describeTurn, ensurePlay, nationTaxation, performTurn, type Board, type BoardPlayer, type Unit } from "./turn.js";
 
 const FACTORIES: Record<NationId, Array<{ region: string; kind: "land" | "sea" }>> = {
   ah: [
@@ -454,5 +454,98 @@ describe("nation turns", () => {
     };
     const fights = describeTurn(started, 0)?.choices.filter((choice) => choice.command.action === "fight") ?? [];
     expect(fights.map((choice) => choice.label)).toEqual(["Fight the France army", "Fight the Germany army"]);
+    const command = fights[0]?.command;
+    if (!command || command.action !== "fight") {
+      throw new Error("missing fight");
+    }
+    const fought = ok(performTurn(started, 0, command));
+    expect(fought.units.filter((unit) => unit.region === "LR8" && unit.nation === "ger")).toHaveLength(1);
+    expect(fought.turn?.phase).not.toBe("army-battle");
+  });
+
+  it("lets one fight settle a region while both sides still have armies", () => {
+    const started = game({
+      government: { uk: 0, fra: 1 },
+      units: [
+        { id: "uk1", nation: "uk", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+        { id: "uk2", nation: "uk", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+        { id: "fr1", nation: "fra", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+        { id: "fr2", nation: "fra", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+      ],
+    });
+    const checkpoint = structuredClone(started);
+    checkpoint.turn = null;
+    started.turn = {
+      nationId: "uk",
+      phase: "army-battle",
+      passedInvestor: false,
+      checkpoint,
+      moved: [],
+      imported: 0,
+      battleRegions: ["LR8"],
+      battleNations: [],
+      attackerDone: false,
+      investors: [],
+      vetoSeats: [],
+      pendingIndex: null,
+      hold: false,
+    };
+    const view = describeTurn(started, 0);
+    const fights = view?.choices.filter((choice) => choice.command.action === "fight") ?? [];
+    expect(fights.map((choice) => choice.label)).toEqual(["Fight in Belgium"]);
+    const command = fights[0]?.command;
+    if (!command || command.action !== "fight") {
+      throw new Error("missing fight");
+    }
+    const fought = ok(performTurn(started, 0, command));
+    expect(fought.units.filter((unit) => unit.region === "LR8" && unit.nation === "uk")).toHaveLength(1);
+    expect(fought.units.filter((unit) => unit.region === "LR8" && unit.nation === "fra")).toHaveLength(1);
+    expect(fought.turn?.phase).not.toBe("army-battle");
+    expect(describeTurn(fought, 1)?.phase).not.toBe("army-battle");
+  });
+
+  it("keeps the peace in a region without asking the other nation to fight", () => {
+    const started = game({
+      government: { uk: 0, fra: 1 },
+      units: [
+        { id: "uk1", nation: "uk", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+        { id: "fr1", nation: "fra", kind: "army", region: "LR8", harbor: false, posture: "standing" },
+      ],
+    });
+    const checkpoint = structuredClone(started);
+    checkpoint.turn = null;
+    started.turn = {
+      nationId: "uk",
+      phase: "army-battle",
+      passedInvestor: false,
+      checkpoint,
+      moved: [],
+      imported: 0,
+      battleRegions: ["LR8"],
+      battleNations: [],
+      attackerDone: false,
+      investors: [],
+      vetoSeats: [],
+      pendingIndex: null,
+      hold: false,
+    };
+    const peaceful = ok(performTurn(started, 0, { action: "peace" }));
+    expect(peaceful.units).toHaveLength(2);
+    expect(peaceful.turn?.phase).not.toBe("army-battle");
+  });
+
+  it("drops a factory from taxation while a hostile army occupies it", () => {
+    const hostile = game({
+      government: { ah: null, ger: 0 },
+      units: [{ id: "u1", nation: "rus", kind: "army", region: "LR12", harbor: false, posture: "hostile" }],
+    });
+    expect(nationTaxation(hostile, "ger")).toBe(2);
+    const friendly = game({
+      government: { ah: null, ger: 0 },
+      units: [{ id: "u1", nation: "rus", kind: "army", region: "LR12", harbor: false, posture: "friendly" }],
+    });
+    expect(nationTaxation(friendly, "ger")).toBe(4);
+    const produced = ok(performTurn(friendly, 0, { action: "rondel", index: 2 }));
+    expect(produced.units.filter((unit) => unit.nation === "ger" && unit.region === "LR12")).toHaveLength(1);
   });
 });

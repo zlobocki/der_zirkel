@@ -387,6 +387,30 @@ button.intent-raise {
   box-shadow: inset 0 0 0 2px #f5d90a;
 }
 
+.board-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.entry-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  color: #f8efd8;
+  font-family: "Germania One", "Palatino Linotype", Palatino, serif;
+  font-size: 1.2rem;
+}
+
 .board-window {
   position: relative;
   width: 100%;
@@ -410,14 +434,11 @@ button.intent-raise {
 }
 
 .board-zoom {
-  position: absolute;
-  top: 0.6rem;
-  right: 0.6rem;
-  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.35rem;
+  margin-left: auto;
 }
 
 .board-frame {
@@ -545,6 +566,11 @@ button.intent-raise {
   cursor: pointer;
 }
 
+.move-dot-pending {
+  background: #fff36a;
+  box-shadow: 0 0 0 2px #083, 0 0 12px #fff36a;
+}
+
 .explosion {
   z-index: 8;
   width: 8%;
@@ -604,19 +630,6 @@ button.intent-raise {
     transform: translate(-50%, -50%) scale(2.4);
     opacity: 0;
   }
-}
-
-.move-posture {
-  z-index: 6;
-  padding: 0.12em 0.45em;
-  border-radius: 0.3em;
-  background: #c6ff4a;
-  color: #083;
-  font-family: "Germania One", "Palatino Linotype", Palatino, serif;
-  font-size: 2cqi;
-  line-height: 1.1;
-  white-space: nowrap;
-  cursor: pointer;
 }
 
 .turn-piece {

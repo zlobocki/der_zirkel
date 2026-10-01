@@ -807,32 +807,7 @@ function nextBattleRegion(board: Board): string | null {
 }
 
 function finishAsking(board: Board): string | null {
-  const turn = board.turn;
-  if (!turn) {
-    return null;
-  }
-  const region = turn.battleRegions[0];
-  const mode = modeOf(turn.phase);
-  if (!region || !contested(board, mode).includes(region)) {
-    return nextBattleRegion(board);
-  }
-  if (!turn.attackerDone) {
-    turn.attackerDone = true;
-    turn.battleNations = NATION_ORDER.filter((id) => {
-      if (id === turn.nationId) {
-        return false;
-      }
-      const present = combatants(board, region, mode).some((unit) => unit.nation === id);
-      const government = board.nations.find((nation) => nation.id === id)?.government;
-      return present && government !== null && government !== undefined;
-    });
-  } else {
-    turn.battleNations.shift();
-  }
-  if (turn.battleNations.length === 0 && turn.attackerDone) {
-    return nextBattleRegion(board);
-  }
-  return null;
+  return nextBattleRegion(board);
 }
 
 function fight(board: Board, ownId: string, enemyId: string): string | null {
@@ -853,10 +828,7 @@ function fight(board: Board, ownId: string, enemyId: string): string | null {
     return "Those units are not in the same region.";
   }
   board.units = board.units.filter((unit) => unit.id !== ownId && unit.id !== enemyId);
-  if (!contested(board, mode).includes(region)) {
-    return nextBattleRegion(board);
-  }
-  return null;
+  return nextBattleRegion(board);
 }
 
 function defenderPresent(board: Board, region: string, owner: NationId): boolean {
@@ -1507,7 +1479,8 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     const region = turn.battleRegions[0];
     const mode = modeOf(turn.phase);
     const actorNation = turn.attackerDone ? turn.battleNations[0] : turn.nationId;
-    base.prompt = `${NATION_NAME[actorNation ?? turn.nationId]} may fight in ${region ? regionName(region) : "the region"}, or keep the peace.`;
+    const place = region ? regionName(region) : "the region";
+    base.prompt = `${NATION_NAME[actorNation ?? turn.nationId]} may fight in ${place}, or keep the peace. The choice settles ${place} for this round.`;
     if (region && actorNation) {
       const present = combatants(board, region, mode);
       const own = present.find((unit) => unit.nation === actorNation);
@@ -1533,9 +1506,11 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     }
     base.choices.push(choice("No battle", { action: "peace" }));
   } else if (turn.phase === "destroy") {
-    base.prompt = `${name} may destroy a factory with three hostile armies.`;
+    base.prompt = `${name} may destroy a factory by removing three hostile armies. A factory occupied by a hostile army does not add to tax.`;
     base.choices = [
-      ...destroyTargets(board).map((region) => choice(`Destroy the factory in ${regionName(region)}`, { action: "destroy", region })),
+      ...destroyTargets(board).map((region) =>
+        choice(`Destroy the factory in ${regionName(region)} and remove three armies`, { action: "destroy", region }),
+      ),
       choice("Leave the factories", { action: "destroy", region: null }),
     ];
   } else if (turn.phase === "invest") {

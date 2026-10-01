@@ -373,8 +373,59 @@ export function Board({
   const movable = new Set(moves.map((move) => move.unitId));
   const selectedMoves = moves.filter((move) => move.unitId === selectedUnit && move.region !== board.units.find((unit) => unit.id === selectedUnit)?.region);
   const rondelChoices = board.turn?.yours && board.turn.phase === "rondel" ? board.turn.choices.filter((choice) => choice.command.action === "rondel") : [];
+  const entryMoves = postureFor ? selectedMoves.filter((move) => move.region === postureFor) : [];
+  const combatMove = entryMoves.find((move) => move.posture === "hostile");
+  const friendlyMove = entryMoves.find((move) => move.posture === "friendly");
+  const entryPlace = combatMove?.label.slice(combatMove.label.lastIndexOf(" in ") + 4) ?? "";
+
+  function enter(move: MoveCommand | undefined) {
+    if (!onCommand || !move) {
+      return;
+    }
+    onCommand({
+      action: "move",
+      unitId: move.unitId,
+      region: move.region,
+      ...(move.posture ? { posture: move.posture } : {}),
+    });
+  }
 
   return (
+    <div className="board-shell">
+      <div className="board-toolbar">
+        {combatMove && friendlyMove ? (
+          <div className="entry-choice" role="group" aria-label={`How the army enters ${entryPlace}`}>
+            <span>How should the army enter {entryPlace}?</span>
+            <button type="button" onClick={() => enter(combatMove)}>
+              Combat move
+            </button>
+            <button type="button" onClick={() => enter(friendlyMove)}>
+              Friendly move
+            </button>
+          </div>
+        ) : (
+          <span />
+        )}
+        <div className="board-zoom">
+          <button type="button" onClick={() => zoomBy(1 / 1.25)} aria-label="Zoom out">
+            Zoom out
+          </button>
+          <button type="button" onClick={() => zoomBy(1.25)} aria-label="Zoom in">
+            Zoom in
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const viewport = viewportRef.current;
+              if (viewport) {
+                updateCamera(fitCamera(viewport));
+              }
+            }}
+          >
+            Fit
+          </button>
+        </div>
+      </div>
     <div
       className={`board-window${panning ? " panning" : ""}`}
       ref={viewportRef}
@@ -584,7 +635,7 @@ export function Board({
                 <Piece
                   x={x}
                   y={y}
-                  className="move-dot"
+                  className={`move-dot${postureFor === region ? " move-dot-pending" : ""}`}
                   regionId={region}
                   title={direct?.label ?? "Choose how the army enters"}
                   onClick={() => {
@@ -605,27 +656,6 @@ export function Board({
                 >
                   <span />
                 </Piece>
-                {postureFor === region
-                  ? options.map((option, index) => (
-                      <Piece
-                        key={option.posture ?? "enter"}
-                        x={x + (index === 0 ? -6 : 6)}
-                        y={y + 4}
-                        className="move-posture"
-                        title={option.posture === "hostile" ? "Hostile" : "Friendly"}
-                        onClick={() =>
-                          onCommand?.({
-                            action: "move",
-                            unitId: option.unitId,
-                            region,
-                            ...(option.posture ? { posture: option.posture } : {}),
-                          })
-                        }
-                      >
-                        {option.posture === "hostile" ? "Hostile" : "Friendly"}
-                      </Piece>
-                    ))
-                  : null}
               </span>
             );
           })}
@@ -638,25 +668,7 @@ export function Board({
           ))}
         </div>
       </div>
-      <div className="board-zoom">
-        <button type="button" onClick={() => zoomBy(1 / 1.25)} aria-label="Zoom out">
-          Zoom out
-        </button>
-        <button type="button" onClick={() => zoomBy(1.25)} aria-label="Zoom in">
-          Zoom in
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const viewport = viewportRef.current;
-            if (viewport) {
-              updateCamera(fitCamera(viewport));
-            }
-          }}
-        >
-          Fit
-        </button>
-      </div>
+    </div>
     </div>
   );
 }

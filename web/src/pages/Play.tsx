@@ -103,14 +103,17 @@ function bondOffer(
   nationId: string,
   interest: number,
   intent: BondIntent,
+  replaceInterest: number | null,
 ) {
   return choices.find((choice) => {
     const command = choice.command;
     if (command.action !== "invest" || command.nationId !== nationId || command.interest !== interest) {
       return false;
     }
-    const raising = command.replaceInterest != null;
-    return intent === "raise" ? raising : !raising;
+    if (intent === "raise") {
+      return command.replaceInterest === replaceInterest;
+    }
+    return command.replaceInterest == null;
   });
 }
 
@@ -125,16 +128,31 @@ function BondMarket({
 }) {
   const turn = board.turn;
   const [intent, setIntent] = useState<BondIntent | null>(null);
+  const [upgradeFrom, setUpgradeFrom] = useState<{ nationId: string; interest: number } | null>(null);
   const investing = turn?.phase === "invest";
   const actor = turn?.actorSeat ?? null;
   useEffect(() => {
     setIntent(null);
+    setUpgradeFrom(null);
   }, [actor, investing]);
   if (!turn || !investing) {
     return null;
   }
   const canBuy = turn.yours && turn.choices.some((choice) => choice.command.action === "invest" && choice.command.interest != null && choice.command.replaceInterest == null);
   const canRaise = turn.yours && turn.choices.some((choice) => choice.command.action === "invest" && choice.command.replaceInterest != null);
+  const holder = board.players.find((player) => player.seat === actor);
+  const upgradeSources = (holder?.bonds ?? [])
+    .filter((bond) =>
+      turn.choices.some(
+        (choice) => choice.command.action === "invest" && choice.command.nationId === bond.nation && choice.command.replaceInterest === bond.interest,
+      ),
+    )
+    .sort((left, right) => {
+      const byNation = NATIONS.findIndex((nation) => nation.id === left.nation) - NATIONS.findIndex((nation) => nation.id === right.nation);
+      return byNation || left.interest - right.interest;
+    });
+  const selectedSource =
+    upgradeFrom && upgradeSources.some((bond) => bond.nation === upgradeFrom.nationId && bond.interest === upgradeFrom.interest) ? upgradeFrom : null;
   return (
     <>
       {turn.yours ? (
@@ -144,7 +162,10 @@ function BondMarket({
             className={intent === "buy" ? "intent-buy" : ""}
             aria-pressed={intent === "buy"}
             disabled={pending || !canBuy}
-            onClick={() => setIntent("buy")}
+            onClick={() => {
+              setUpgradeFrom(null);
+              setIntent("buy");
+            }}
           >
             Buy a bond
           </button>
@@ -153,10 +174,40 @@ function BondMarket({
             className={intent === "raise" ? "intent-raise" : ""}
             aria-pressed={intent === "raise"}
             disabled={pending || !canRaise}
-            onClick={() => setIntent("raise")}
+            onClick={() => {
+              setUpgradeFrom(null);
+              setIntent("raise");
+            }}
           >
             Upgrade a bond
           </button>
+        </div>
+      ) : null}
+      {turn.yours && intent === "raise" ? (
+        <div className="upgrade-source">
+          <p className="notice">Which bond should be upgraded?</p>
+          <div className="bond-row-cards">
+            {upgradeSources.map((bond) => {
+              const nation = NATIONS.find((entry) => entry.id === bond.nation);
+              const selected = selectedSource?.nationId === bond.nation && selectedSource.interest === bond.interest;
+              return (
+                <button
+                  key={`${bond.nation}-${bond.interest}`}
+                  type="button"
+                  className={`bond-offer${selected ? " bond-raise" : " bond-buy"}`}
+                  disabled={pending}
+                  aria-pressed={selected}
+                  title={`${nation?.name ?? bond.nation} ${bond.price} million`}
+                  data-upgrade-nation={bond.nation}
+                  data-upgrade-interest={bond.interest}
+                  onClick={() => setUpgradeFrom({ nationId: bond.nation, interest: bond.interest })}
+                >
+                  <img src={bondSrc(bond.nation, bond.interest)} alt={`${nation?.name ?? bond.nation} ${bond.price} million`} />
+                </button>
+              );
+            })}
+          </div>
+          {selectedSource ? <p className="notice">Choose the bond to upgrade to. Pay the difference.</p> : null}
         </div>
       ) : null}
       <div className="bond-market" aria-label="Bonds for sale">
@@ -167,7 +218,12 @@ function BondMarket({
               <span className="bond-row-name">{nation.name}</span>
               <div className="bond-row-cards">
                 {sale.map((bond) => {
-                  const offer = turn.yours && intent ? bondOffer(turn.choices, nation.id, bond.interest, intent) : undefined;
+                  const offer =
+                    turn.yours && intent === "buy"
+                      ? bondOffer(turn.choices, nation.id, bond.interest, "buy", null)
+                      : turn.yours && intent === "raise" && selectedSource?.nationId === nation.id
+                        ? bondOffer(turn.choices, nation.id, bond.interest, "raise", selectedSource.interest)
+                        : undefined;
                   const buying = intent === "buy" && Boolean(offer);
                   const raising = intent === "raise" && Boolean(offer);
                   return (

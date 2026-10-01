@@ -827,7 +827,21 @@ function fight(board: Board, ownId: string, enemyId: string): string | null {
   if (!present.includes(own) || !present.includes(enemy)) {
     return "Those units are not in the same region.";
   }
-  board.units = board.units.filter((unit) => unit.id !== ownId && unit.id !== enemyId);
+  const ours = present.filter((unit) => unit.nation === actorNation);
+  const theirs = present.filter((unit) => unit.nation === enemy.nation);
+  const pairs = Math.min(ours.length, theirs.length);
+  const removed = new Set<string>();
+  for (let index = 0; index < pairs; index += 1) {
+    const left = ours[index];
+    const right = theirs[index];
+    if (left) {
+      removed.add(left.id);
+    }
+    if (right) {
+      removed.add(right.id);
+    }
+  }
+  board.units = board.units.filter((unit) => !removed.has(unit.id));
   return nextBattleRegion(board);
 }
 
@@ -1193,13 +1207,14 @@ function investmentChoices(board: Board, seat: number): Array<{ nationId: Nation
         continue;
       }
       const name = NATION_NAME[nationId];
-      const held = player.bonds
-        .filter((bond) => bond.nation === nationId)
-        .reduce<BoardPlayer["bonds"][number] | null>((best, bond) => (best === null || bond.price > best.price ? bond : best), null);
+      const heldBonds = player.bonds.filter((bond) => bond.nation === nationId);
       if (player.cash >= price) {
         choices.push({ nationId, interest, replaceInterest: null, price, label: `${name} ${price} million` });
       }
-      if (held && held.price < price) {
+      for (const held of heldBonds) {
+        if (held.price >= price) {
+          continue;
+        }
         const difference = price - held.price;
         if (player.cash >= difference) {
           choices.push({
@@ -1480,7 +1495,7 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     const mode = modeOf(turn.phase);
     const actorNation = turn.attackerDone ? turn.battleNations[0] : turn.nationId;
     const place = region ? regionName(region) : "the region";
-    base.prompt = `${NATION_NAME[actorNation ?? turn.nationId]} may fight in ${place}, or keep the peace. The choice settles ${place} for this round.`;
+    base.prompt = `${NATION_NAME[actorNation ?? turn.nationId]} may fight in ${place}, or keep the peace. Fighting removes units from both sides until one side is gone.`;
     if (region && actorNation) {
       const present = combatants(board, region, mode);
       const own = present.find((unit) => unit.nation === actorNation);

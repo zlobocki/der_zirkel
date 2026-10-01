@@ -379,6 +379,23 @@ button.bond-raise img {
   margin-bottom: 0.2rem;
 }
 
+.upgrade-source {
+  margin: 0.45rem 0 0.2rem;
+}
+
+.upgrade-source .notice {
+  margin: 0 0 0.4rem;
+}
+
+.upgrade-source .notice + .notice,
+.upgrade-source .bond-row-cards + .notice {
+  margin-top: 0.55rem;
+}
+
+.upgrade-source button.bond-offer img {
+  width: 4.2rem;
+}
+
 button.intent-buy {
   box-shadow: inset 0 0 0 2px #39ff14;
 }

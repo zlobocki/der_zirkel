@@ -362,6 +362,41 @@ describe("nation turns", () => {
     expect(raised.piles.ah).not.toContain(5);
   });
 
+  it("lets the player upgrade either bond they hold in a nation", () => {
+    const started = game({
+      treasury: { ah: 20 },
+      players: [
+        player(0, 10, {
+          bonds: [
+            { nation: "ah", interest: 1, price: 2 },
+            { nation: "ah", interest: 2, price: 4 },
+          ],
+          investor: true,
+          swissBank: false,
+        }),
+      ],
+    });
+    started.piles.ah = started.piles.ah.filter((interest) => interest !== 1 && interest !== 2);
+    const invested = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const raises = (describeTurn(invested, 0)?.choices ?? []).flatMap((entry) => {
+      const command = entry.command;
+      if (command.action !== "invest" || command.nationId !== "ah" || command.interest !== 3) {
+        return [];
+      }
+      return [command.replaceInterest];
+    });
+    expect(raises).toEqual(expect.arrayContaining([1, 2]));
+    const raised = ok(performTurn(invested, 0, { action: "invest", nationId: "ah", interest: 3, replaceInterest: 1 }));
+    expect(raised.players[0]?.bonds).toEqual(
+      expect.arrayContaining([
+        { nation: "ah", interest: 2, price: 4 },
+        { nation: "ah", interest: 3, price: 6 },
+      ]),
+    );
+    expect(raised.players[0]?.bonds).toHaveLength(2);
+    expect(raised.piles.ah).toContain(1);
+  });
+
   it("lets the Swiss bank stop a move that passes Investor", () => {
     const started = game({ rondel: { ah: 3 } });
     const asked = ok(performTurn(started, 0, { action: "rondel", index: 5 }));
@@ -498,8 +533,7 @@ describe("nation turns", () => {
       throw new Error("missing fight");
     }
     const fought = ok(performTurn(started, 0, command));
-    expect(fought.units.filter((unit) => unit.region === "LR8" && unit.nation === "uk")).toHaveLength(1);
-    expect(fought.units.filter((unit) => unit.region === "LR8" && unit.nation === "fra")).toHaveLength(1);
+    expect(fought.units.filter((unit) => unit.region === "LR8")).toHaveLength(0);
     expect(fought.turn?.phase).not.toBe("army-battle");
     expect(describeTurn(fought, 1)?.phase).not.toBe("army-battle");
   });

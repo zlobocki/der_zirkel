@@ -85,6 +85,87 @@ function ok(board: Board | { error: string }): Board {
 }
 
 describe("nation turns", () => {
+  function transportGame(seas: string[], count = 2, origin = "LR40") {
+    return game({ government: { ah: null, uk: 0 }, units: [
+      ...Array.from({ length: count }, (_, index): Unit => ({ id: `army-${index}`, nation: "uk", kind: "army", region: origin, harbor: false, posture: "standing" })),
+      ...seas.map((region, index): Unit => ({ id: `fleet-${index}`, nation: "uk", kind: "fleet", region, harbor: false, posture: "standing" })),
+    ] });
+  }
+
+  function enterArmyMoves(board: Board) {
+    const fleets = ok(performTurn(board, 0, { action: "rondel", index: 3 }));
+    return ok(performTurn(fleets, 0, { action: "moves-done" }));
+  }
+
+  it("reserves one fleet in every traversed sea for each transported army", () => {
+    const moving = enterArmyMoves(transportGame(["SR7", "SR1"]));
+    const first = ok(performTurn(moving, 0, { action: "move", unitId: "army-0", region: "LR35" }));
+    expect(first.turn?.transported).toEqual(["fleet-0", "fleet-1"]);
+    const saved = JSON.parse(JSON.stringify(first)) as Board;
+    expect(performTurn(saved, 0, { action: "move", unitId: "army-1", region: "LR35" })).toMatchObject({ error: "That army cannot move there." });
+    expect(describeTurn(saved, 0)?.choices.some(({ command }) => command.action === "move" && command.unitId === "army-1" && command.region === "LR35")).toBe(false);
+    expect(moving.turn?.transported).toEqual([]);
+  });
+
+  it("allows two armies across two seas only with two fleets in each sea", () => {
+    let moving = enterArmyMoves(transportGame(["SR7", "SR7", "SR1", "SR1"], 3));
+    for (const unitId of ["army-0", "army-1"]) moving = ok(performTurn(moving, 0, { action: "move", unitId, region: "LR35" }));
+    expect(new Set(moving.turn?.transported).size).toBe(4);
+    expect(performTurn(moving, 0, { action: "move", unitId: "army-2", region: "LR35" })).toHaveProperty("error");
+  });
+
+  it("enforces the bottleneck while leaving unused fleets available for shorter trips", () => {
+    const moving = enterArmyMoves(transportGame(["SR7", "SR7", "SR1"]));
+    const first = ok(performTurn(moving, 0, { action: "move", unitId: "army-0", region: "LR35" }));
+    expect(performTurn(first, 0, { action: "move", unitId: "army-1", region: "LR35" })).toHaveProperty("error");
+    const second = ok(performTurn(first, 0, { action: "move", unitId: "army-1", region: "LR39" }));
+    expect(second.turn?.transported).toHaveLength(3);
+  });
+
+  it("does not spend fleet capacity when a land or rail route is available", () => {
+    const moving = enterArmyMoves(transportGame(["SR7"], 2, "LR36"));
+    const overland = ok(performTurn(moving, 0, { action: "move", unitId: "army-0", region: "LR39" }));
+    expect(overland.turn?.transported).toEqual([]);
+    const sailed = ok(performTurn(overland, 0, { action: "move", unitId: "army-1", region: "LR40" }));
+    expect(sailed.turn?.transported).toEqual(["fleet-0"]);
+  });
+
+  it("restores transport capacity on undo and on a new maneuver turn", () => {
+    const original = transportGame(["SR7", "SR1"]);
+    const first = ok(performTurn(enterArmyMoves(original), 0, { action: "move", unitId: "army-0", region: "LR35" }));
+    const undone = ok(performTurn(first, 0, { action: "undo" }));
+    expect(undone.turn?.transported).toEqual([]);
+    expect(ok(performTurn(enterArmyMoves(undone), 0, { action: "move", unitId: "army-0", region: "LR35" })).turn?.transported).toHaveLength(2);
+    const finished = ok(performTurn(first, 0, { action: "moves-done" }));
+    const next = ok(performTurn(finished, 0, { action: "confirm" }));
+    expect(next.turn?.transported).toEqual([]);
+    const proposed = ok(performTurn(next, 0, { action: "rondel", index: 7 }));
+    const fleets = ok(performTurn(proposed, 1, { action: "veto", block: false }));
+    const armies = ok(performTurn(fleets, 0, { action: "moves-done" }));
+    expect(ok(performTurn(armies, 0, { action: "move", unitId: "army-0", region: "LR40" })).turn?.transported).toHaveLength(2);
+  });
+
+  it("uses a fleet's capacity after it has moved to a sea during the fleet phase", () => {
+    const started = transportGame(["SR6"]);
+    const fleets = ok(performTurn(started, 0, { action: "rondel", index: 3 }));
+    const sailed = ok(performTurn(fleets, 0, { action: "move", unitId: "fleet-0", region: "SR7" }));
+    const armies = ok(performTurn(sailed, 0, { action: "moves-done" }));
+    expect(ok(performTurn(armies, 0, { action: "move", unitId: "army-0", region: "LR39" })).turn?.transported).toEqual(["fleet-0"]);
+  });
+
+  it("does not use opposing fleets or harbor fleets for transport", () => {
+    for (const fleet of [
+      { nation: "fra" as const, region: "SR7", harbor: false },
+      { nation: "uk" as const, region: "LR37", harbor: true },
+    ]) {
+      const started = transportGame(["SR7", "SR1"]);
+      Object.assign(started.units.find((unit) => unit.id === "fleet-0")!, fleet);
+      const fleets = ok(performTurn(started, 0, { action: "rondel", index: 3 }));
+      const armies = ok(performTurn(fleets, 0, { action: "moves-done" }));
+      expect(performTurn(armies, 0, { action: "move", unitId: "army-0", region: "LR35" })).toHaveProperty("error");
+    }
+  });
+
   it("collects tax from unoccupied factories and can undo the whole turn", () => {
     const started = game({});
     const taxed = ok(performTurn(started, 0, { action: "rondel", index: 0 }));

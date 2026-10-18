@@ -6,6 +6,7 @@ import { bondSrc } from "../board/bonds";
 import { armCombatAudio, playCombatSound } from "../board/combat-audio";
 import { playTurnDing } from "../board/turn-audio";
 import { activePlayerKey } from "../board/turn-notification";
+import { Victory } from "../board/Victory";
 import { useAuth } from "../auth-context";
 import { gameRemembered, rememberGame } from "../open-games";
 
@@ -349,21 +350,7 @@ function NationTurn({
 }) {
   const turn = board.turn;
   if (board.finished) {
-    return (
-      <section className="card">
-        <h2>The game is over</h2>
-        <ul className="account-list">
-          {(board.scores ?? []).map((score) => {
-            const player = board.players.find((entry) => entry.seat === score.seat);
-            return (
-              <li key={score.seat}>
-                {player?.username ?? "Player"}: {score.points} points{score.winner ? " — wins" : ""}
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-    );
+    return <Victory board={board} />;
   }
   if (!turn) {
     return null;

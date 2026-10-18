@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { bondSrc } from "./bonds";
+import { PlayerToken } from "./PlayerToken";
 import { firstEmptySlot, positionFor, type Point } from "./occupy";
 import slotsFile from "./slots.json";
 import type { BoardView } from "../api";
@@ -61,10 +62,6 @@ function rondelCostPoint(index: number): [number, number] {
 function rondelCostText(label: string): string | null {
   const found = /(\d+) million/.exec(label);
   return found?.[1] ? `+${found[1]}M` : null;
-}
-
-function tokenSrc(seat: number): string {
-  return `/art/player_token_${seat + 1}.png`;
 }
 
 function ownerNote(board: BoardView, nationId: string, nationName: string): string {
@@ -556,7 +553,7 @@ export function Board({
                 </Piece>
                 {government ? (
                   <Piece x={ownerX} y={ownerY} className="owner-piece" title={ownerNote(board, nation.id, nation.name)}>
-                    <img src={tokenSrc(government.seat)} alt={`${government.username ?? "Player"} governs ${nation.name}`} />
+                    <PlayerToken players={board.players} seat={government.seat} />
                   </Piece>
                 ) : null}
               </span>
@@ -682,7 +679,7 @@ export function PlayerPanel({ board }: { board: BoardView }) {
           return (
             <article className="card player-card" key={player.seat}>
               <h3 className="player-name">
-                <img src={tokenSrc(player.seat)} alt="" />
+                <PlayerToken players={board.players} seat={player.seat} />
                 <span>
                   {player.username ?? "Open seat"}
                   {player.you ? " (you)" : ""}

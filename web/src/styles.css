@@ -269,9 +269,31 @@ button.quiet {
   gap: 0.6rem;
 }
 
-.player-name img {
-  height: 2.4rem;
-  width: auto;
+.player-token {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+  width: 1.5em;
+  aspect-ratio: 1;
+  border: 0.055em solid #dbb94e;
+  background: #080808;
+  color: #edcb66;
+  box-shadow: inset 0 0 0 0.075em #080808, inset 0 0 0 0.09em #745b21;
+  font-family: "Germania One", serif;
+  font-weight: 400;
+  line-height: 1;
+  text-shadow: 0 1px 1px #000;
+}
+
+.player-token-number {
+  font-size: 0.46em;
+  transform: translateY(0.25em);
+  margin-left: 0.04em;
+}
+
+.player-name > .player-token {
+  font-size: 1.6rem;
 }
 
 .player-card button {
@@ -684,9 +706,9 @@ button.intent-raise {
   z-index: 2;
 }
 
-.owner-piece img {
-  display: block;
+.owner-piece .player-token {
   width: 100%;
+  font-size: 2.2cqi;
 }
 
 .nation-value {
@@ -710,6 +732,63 @@ button.intent-raise {
   height: 2.4rem;
   width: auto;
   margin-left: auto;
+}
+
+.card.victory {
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  padding: 2.5rem clamp(1rem, 5vw, 5rem);
+  border: 2px solid #d7b35b;
+  background: radial-gradient(ellipse at 50% 0%, #644825 0%, #21151a 48%, #0d0c11 100%);
+  box-shadow: 0 0 45px #d7b35b40, inset 0 0 55px #0008;
+}
+
+.victory-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  color: #d8be80;
+  font-size: 0.85rem;
+}
+
+.victory-laurels {
+  color: #edcb66;
+  font-size: 4rem;
+  line-height: 1.2;
+  text-shadow: 0 0 28px #ffc65490;
+}
+
+.card.victory h2 {
+  color: #ffe6a1;
+  font-size: clamp(2.5rem, 6vw, 5rem);
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+  text-shadow: 0 2px 15px #d79d3f55;
+}
+
+.victory-subtitle { color: #e5d3b1; font-style: italic; }
+.victory-token { margin: 1.5rem 0; font-size: 3rem; }
+.victory h3 { color: #d8be80; font-size: 1.5rem; }
+.victory-scores { list-style: none; max-width: 42rem; padding: 0; margin: 1rem auto 0; text-align: left; }
+.victory-scores li { display: flex; align-items: center; gap: 1rem; margin-top: 0.6rem; padding: 0.9rem 1rem; background: #ffffff08; border: 1px solid #ffffff18; }
+.victory-scores li.victory-winner { border-color: #d7b35b; background: #dbb94e14; }
+.victory-rank { width: 1.3rem; color: #c1a771; font-family: "Germania One", serif; font-size: 1.5rem; }
+.victory-player { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 1.2rem; }
+.victory-scores small { display: block; font-size: 0.75rem; color: #d8be80; font-weight: normal; }
+.victory-scores strong { color: #ffe6a1; font-family: "Germania One", serif; font-size: 2rem; font-weight: normal; text-align: right; }
+.fireworks { position: fixed; inset: 0; z-index: 50; pointer-events: none; overflow: hidden; }
+.firework-burst { position: absolute; }
+.firework-burst i { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: var(--spark-color); box-shadow: 0 0 8px var(--spark-color), 0 0 18px var(--spark-color); animation: victory-spark 1.8s ease-out var(--delay) both; }
+
+@keyframes victory-spark {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.1); }
+  8% { opacity: 1; }
+  65% { opacity: 0.85; transform: translate(var(--dx), var(--dy)) scale(1); }
+  100% { opacity: 0; transform: translate(var(--dx), calc(var(--dy) + 55px)) scale(0.2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fireworks { display: none; }
 }
 
 @media (max-width: 800px) {

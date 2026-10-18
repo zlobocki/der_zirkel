@@ -50,6 +50,7 @@ export type TurnState = {
   passedInvestor: boolean;
   checkpoint: Board;
   moved: string[];
+  transported?: string[];
   imported: number;
   battleRegions: string[];
   battleNations: NationId[];
@@ -359,6 +360,7 @@ function openTurn(board: Board, nationId: NationId): void {
     passedInvestor: false,
     checkpoint,
     moved: [],
+    transported: [],
     imported: 0,
     battleRegions: [],
     battleNations: [],
@@ -585,15 +587,16 @@ function railReach(board: Board, nation: NationId, origin: string): Set<string> 
   return seen;
 }
 
-function convoys(board: Board, nation: NationId, start: string): Set<string> {
-  const fleets = board.units.filter((unit) => unit.nation === nation && unit.kind === "fleet" && !unit.harbor);
+function convoys(board: Board, nation: NationId, start: string): Map<string, string[]> {
+  const used = new Set(board.turn?.transported ?? []);
+  const fleets = board.units.filter((unit) => unit.nation === nation && unit.kind === "fleet" && !unit.harbor && !used.has(unit.id));
   const bySea = new Map<string, Unit[]>();
   for (const fleet of fleets) {
     const list = bySea.get(fleet.region) ?? [];
     list.push(fleet);
     bySea.set(fleet.region, list);
   }
-  const lands = new Set<string>();
+  const lands = new Map<string, string[]>();
   const seen = new Set<string>();
   const queue: Array<{ sea: string; used: string[] }> = [];
   for (const sea of regions.get(start)?.links ?? []) {
@@ -609,14 +612,14 @@ function convoys(board: Board, nation: NationId, start: string): Set<string> {
     if (!current) {
       continue;
     }
-    const key = `${current.sea}|${[...current.used].sort().join(",")}`;
+    const key = current.sea;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
     for (const land of regions.get(current.sea)?.links ?? []) {
       if (land.startsWith("LR") && land !== start) {
-        lands.add(land);
+        if (!lands.has(land)) lands.set(land, current.used);
       }
     }
     for (const sea of regions.get(current.sea)?.links ?? []) {
@@ -646,31 +649,34 @@ function protectedProvince(board: Board, regionId: string): boolean {
   return unoccupied.length === 1 && unoccupied[0]?.region === regionId;
 }
 
-function armyDestinations(board: Board, unit: Unit): Array<{ region: string; hostileAllowed: boolean }> {
+function armyDestinations(board: Board, unit: Unit): Array<{ region: string; hostileAllowed: boolean; transport: string[] }> {
   const starts = railReach(board, unit.nation, unit.region);
-  const found = new Set<string>([unit.region]);
+  const found = new Map<string, string[]>([[unit.region, []]]);
+  const offer = (region: string, transport: string[]) => {
+    const previous = found.get(region);
+    if (!previous || transport.length < previous.length) found.set(region, transport);
+  };
   for (const start of starts) {
-    found.add(start);
+    offer(start, []);
     for (const link of regions.get(start)?.links ?? []) {
       if (link.startsWith("LR")) {
-        found.add(link);
+        offer(link, []);
       }
     }
-    for (const land of convoys(board, unit.nation, start)) {
-      found.add(land);
+    for (const [land, transport] of convoys(board, unit.nation, start)) {
+      offer(land, transport);
     }
   }
-  const expanded = new Set(found);
-  for (const region of found) {
+  for (const [region, transport] of [...found]) {
     if (regions.get(region)?.home === unit.nation) {
       for (const home of railReach(board, unit.nation, region)) {
-        expanded.add(home);
+        offer(home, transport);
       }
     }
   }
-  return [...expanded].map((region) => {
+  return [...found].map(([region, transport]) => {
     const foreign = regions.get(region)?.home !== null && regions.get(region)?.home !== unit.nation;
-    return { region, hostileAllowed: foreign && !protectedProvince(board, region) };
+    return { region, hostileAllowed: foreign && !protectedProvince(board, region), transport };
   });
 }
 
@@ -723,6 +729,7 @@ function moveUnit(board: Board, unitId: string, region: string, posture?: "hosti
     unit.posture = "standing";
   }
   unit.region = region;
+  turn.transported = [...(turn.transported ?? []), ...destination.transport];
   turn.moved.push(unitId);
   return null;
 }

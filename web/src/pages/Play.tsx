@@ -7,6 +7,32 @@ import { armCombatAudio, playCombatSound } from "../board/combat-audio";
 import { useAuth } from "../auth-context";
 import { gameRemembered, rememberGame } from "../open-games";
 
+function BondConfirmation({ label, pending, onApprove, onRestart }: {
+  label: string;
+  pending: boolean;
+  onApprove: () => void;
+  onRestart: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+  return (
+    <dialog ref={dialog} className="bond-confirmation" onCancel={(event) => {
+      event.preventDefault();
+      if (!pending) onRestart();
+    }} aria-labelledby="bond-confirmation-title">
+      <h2 id="bond-confirmation-title">Confirm bond purchase</h2>
+      <p>{label}</p>
+      <p>Approve this move or start over and choose differently.</p>
+      <div className="row-actions">
+        <button type="button" disabled={pending} onClick={onApprove}>Approve</button>
+        <button type="button" className="quiet" autoFocus disabled={pending} onClick={onRestart}>Start over</button>
+      </div>
+    </dialog>
+  );
+}
+
 function DraftTurn({
   gameId,
   board,
@@ -19,6 +45,9 @@ function DraftTurn({
   const draft = board.draft;
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [selection, setSelection] = useState<{ interest: number; price: number } | null>(null);
+  const busy = useRef(false);
+  useEffect(() => setSelection(null), [board]);
   if (!draft) {
     return null;
   }
@@ -27,6 +56,8 @@ function DraftTurn({
   const cash = board.players.find((player) => player.you)?.cash;
 
   async function choose(interest: number | null) {
+    if (busy.current) return;
+    busy.current = true;
     setError(null);
     setPending(true);
     try {
@@ -37,6 +68,8 @@ function DraftTurn({
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not buy that bond.");
     } finally {
+      busy.current = false;
+      setSelection(null);
       setPending(false);
     }
   }
@@ -61,7 +94,7 @@ function DraftTurn({
                   className={`bond-offer${affordable ? " bond-buy" : ""}`}
                   disabled={pending || !affordable}
                   title={`${nation} ${choice.price} million`}
-                  onClick={() => void choose(choice.interest)}
+                  onClick={() => setSelection(choice)}
                 >
                   <img src={bondSrc(draft.nationId, choice.interest)} alt={`${nation} ${choice.price} million`} />
                 </button>
@@ -76,6 +109,12 @@ function DraftTurn({
         </>
       ) : null}
       {error ? <p className="error">{error}</p> : null}
+      {selection ? <BondConfirmation
+        label={`Buy the ${nation} bond for ${selection.price} million (${selection.interest} million interest).`}
+        pending={pending}
+        onApprove={() => void choose(selection.interest)}
+        onRestart={() => setSelection(null)}
+      /> : null}
     </section>
   );
 }
@@ -129,6 +168,8 @@ function BondMarket({
   const turn = board.turn;
   const [intent, setIntent] = useState<BondIntent | null>(null);
   const [upgradeFrom, setUpgradeFrom] = useState<{ nationId: string; interest: number } | null>(null);
+  const [selection, setSelection] = useState<NonNullable<BoardView["turn"]>["choices"][number] | null>(null);
+  useEffect(() => setSelection(null), [board]);
   const investing = turn?.phase === "invest";
   const actor = turn?.actorSeat ?? null;
   useEffect(() => {
@@ -237,7 +278,7 @@ function BondMarket({
                       data-interest={bond.interest}
                       onClick={() => {
                         if (offer) {
-                          onAct(offer.command);
+                          setSelection(offer);
                         }
                       }}
                     >
@@ -250,6 +291,19 @@ function BondMarket({
           );
         })}
       </div>
+      {selection ? <BondConfirmation
+        label={selection.label}
+        pending={pending}
+        onApprove={() => {
+          onAct(selection.command);
+          setSelection(null);
+        }}
+        onRestart={() => {
+          setSelection(null);
+          setIntent(null);
+          setUpgradeFrom(null);
+        }}
+      /> : null}
     </>
   );
 }
@@ -449,25 +503,58 @@ export function Play() {
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [unlocked, setUnlocked] = useState(() => gameRemembered(gameId));
+  const localRevision = useRef(0);
+  const refreshGame = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!user || !unlocked || !gameId) {
       return;
     }
     let active = true;
-    fetchGame(gameId)
-      .then((body) => {
-        if (active) {
-          setGame(body.game);
+    let fetching = false;
+    let refreshAgain = false;
+    let retry: number | undefined;
+    async function refresh() {
+      if (!active) return;
+      if (fetching) {
+        refreshAgain = true;
+        return;
+      }
+      fetching = true;
+      refreshAgain = false;
+      window.clearTimeout(retry);
+      const revision = localRevision.current;
+      try {
+        const body = await fetchGame(gameId);
+        if (active && revision === localRevision.current) {
+          setError(null);
+          setGame((previous) => JSON.stringify(previous) === JSON.stringify(body.game) ? previous : body.game);
+        } else if (active) {
+          refreshAgain = true;
         }
-      })
-      .catch((caught) => {
+      } catch (caught) {
         if (active) {
           setError(caught instanceof ApiError ? caught.message : "Could not open this game.");
+          retry = window.setTimeout(() => void refresh(), 5000);
         }
-      });
+      } finally {
+        fetching = false;
+        if (active && refreshAgain) void refresh();
+      }
+    }
+    const events = new EventSource(`/api/games/${encodeURIComponent(gameId)}/events`);
+    refreshGame.current = () => void refresh();
+    events.addEventListener("changed", refresh);
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", refresh);
+    void refresh();
     return () => {
       active = false;
+      events.close();
+      window.clearTimeout(retry);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", refresh);
     };
   }, [user, unlocked, gameId]);
 
@@ -549,7 +636,11 @@ export function Play() {
         <Link to="/lobby">Lobby</Link>
       </p>
       <h2>{game.name}</h2>
-      <GameTable gameId={game.id} board={game.board} onBoard={(board) => setGame({ ...game, board })} />
+      <GameTable key={game.id} gameId={game.id} board={game.board} onBoard={(board) => {
+        localRevision.current += 1;
+        setGame((previous) => previous ? { ...previous, board } : previous);
+        refreshGame.current();
+      }} />
     </>
   );
 }

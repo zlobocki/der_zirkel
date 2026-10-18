@@ -375,6 +375,19 @@ button.bond-raise img {
   box-shadow: 0 0 0 3px #f5d90a;
 }
 
+.bond-confirmation {
+  max-width: min(32rem, calc(100vw - 3rem));
+  padding: 1.5rem;
+  border: 2px solid #6b4d32;
+  border-radius: 0.5rem;
+  background: #f7eedb;
+  color: #281c13;
+}
+
+.bond-confirmation::backdrop {
+  background: rgb(0 0 0 / 65%);
+}
+
 .bond-intent {
   margin-bottom: 0.2rem;
 }

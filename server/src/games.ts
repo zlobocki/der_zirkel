@@ -4,6 +4,7 @@ import type postgres from "postgres";
 import { z } from "zod";
 import { clearAuthCookie, fieldError, loadSessionUser, type SessionUser } from "./auth.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
+import { registerGameEvents } from "./game-events.js";
 import { NATION_ORDER, bondPrice, type NationId } from "./rules/constants.js";
 import { actorSeat, availableBonds, chooseBond, openingPiles, type DraftCursor } from "./rules/draft.js";
 import { describeTurn, ensurePlay, nationTaxation, performTurn, scoreboard, type Board, type TurnCommand } from "./rules/turn.js";
@@ -293,6 +294,8 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
     }
     return user;
   }
+
+  registerGameEvents(app, sql, requireUser);
 
   async function loadPlayers(query: postgres.TransactionSql, gameId: string): Promise<PlayerRow[]> {
     return query<PlayerRow[]>`

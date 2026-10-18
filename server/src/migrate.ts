@@ -45,6 +45,27 @@ export async function migrate(sql: postgres.Sql): Promise<void> {
   await sql`alter table games add column if not exists created_by uuid references users (id) on delete set null`;
   await sql`alter table games add column if not exists state jsonb not null default '{}'::jsonb`;
   await sql`alter table game_players add column if not exists seat_index smallint`;
+  // PostgreSQL delivers these only after commit, across all server instances.
+  await sql`
+    create or replace function notify_game_changed() returns trigger as $$
+    begin
+      if TG_OP = 'DELETE' then
+        perform pg_notify('game_changed', OLD.id::text);
+        return OLD;
+      end if;
+      perform pg_notify('game_changed', NEW.id::text);
+      return NEW;
+    end;
+    $$ language plpgsql
+  `;
+  await sql`
+    do $$ begin
+      if not exists (select 1 from pg_trigger where tgname = 'games_notify_changed' and tgrelid = 'games'::regclass) then
+        create trigger games_notify_changed after insert or update or delete on games
+          for each row execute function notify_game_changed();
+      end if;
+    end $$
+  `;
   await sql`
     create unique index if not exists games_active_name
     on games (name_normalized)

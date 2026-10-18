@@ -240,6 +240,19 @@ button.quiet {
   margin-top: 1rem;
 }
 
+.game-log ol {
+  max-height: 22rem;
+  overflow-y: auto;
+  padding-left: 2.8rem;
+  padding-right: 0.5rem;
+}
+
+.game-log li {
+  padding: 0.55rem 0.3rem;
+  border-bottom: 1px solid rgb(107 77 50 / 25%);
+  line-height: 1.5;
+}
+
 .player-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

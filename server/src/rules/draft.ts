@@ -1,4 +1,5 @@
-import { NATION_ORDER, bondPrice, fullPiles, type NationId } from "./constants.js";
+import { NATION_NAME, NATION_ORDER, bondPrice, fullPiles, type NationId } from "./constants.js";
+import { appendLog, type GameLogEntry } from "./log.js";
 
 export type BondHolding = {
   nation: NationId;
@@ -27,6 +28,7 @@ export type DraftNation = {
 };
 
 export type DraftPosition = {
+  log?: GameLogEntry[];
   players: DraftPlayer[];
   nations: DraftNation[];
   piles: Record<NationId, number[]>;
@@ -92,7 +94,18 @@ export function chooseBond<T extends DraftPosition>(position: T, seat: number, i
     player.bonds.push({ nation, interest, price });
     treasury.treasury += price;
   }
-  return advance({ ...position, players, nations, piles }) as T;
+  const next = advance({ ...position, players, nations, piles }) as T;
+  const name = (player as DraftPlayer & { username?: string | null }).username ?? (player.kind === "ai" ? `AI ${seat + 1}` : `Player ${seat + 1}`);
+  appendLog(next, interest === null
+    ? `${name} passed on the opening ${NATION_NAME[nation]} bond.`
+    : `${name} bought an opening ${NATION_NAME[nation]} bond for ${bondPrice(interest)} million (${interest} million interest).`);
+  if (!next.draft) {
+    appendLog(next, `The opening bond draft is complete. ${next.nations.filter((entry) => entry.government !== null).map((entry) => {
+      const leader = next.players.find((person) => person.seat === entry.government) as (DraftPlayer & { username?: string | null }) | undefined;
+      return `${NATION_NAME[entry.id]} is controlled by ${leader?.username ?? `Player ${(entry.government ?? 0) + 1}`}.`;
+    }).join(" ")}`);
+  }
+  return next;
 }
 
 function advance(position: DraftPosition): DraftPosition {

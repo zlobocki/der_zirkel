@@ -210,6 +210,7 @@ function boardForViewer(board: Board | null, userId: string) {
       cash: board.finished || player.userId === userId ? player.cash : null,
     })),
     units: board.units ?? [],
+    log: board.log ?? [],
     flags: board.flags ?? [],
     draft,
     turn: describeTurn(board, viewerSeat),

@@ -227,7 +227,50 @@ describe("nation turns", () => {
     expect(describeTurn(investing, 0)?.prompt).toContain("You hold the Investor card");
     const done = ok(performTurn(investing, 0, { action: "invest", nationId: null, interest: null, replaceInterest: null }));
     expect(done.players[1]?.investor).toBe(true);
-    expect(done.turn?.phase).toBe("confirm");
+    // No bonds are held in this fixture, so no country has a government left.
+    expect(done.turn).toBeNull();
+  });
+
+  it("advances directly to the next country after the last bond buyer", () => {
+    const started = game({ government: { ah: 0, ita: 1 }, treasury: { ah: 10 }, players: [
+      player(0, 20, { bonds: [{ nation: "ah", interest: 1, price: 2 }], swissBank: false }),
+      player(1, 20, { bonds: [{ nation: "ita", interest: 1, price: 2 }], swissBank: true }),
+    ] });
+    const investing = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const first = ok(performTurn(investing, 0, { action: "invest", nationId: "ger", interest: 1, replaceInterest: null }));
+    expect(first.turn?.phase).toBe("invest");
+    expect(first.turn?.investors).toEqual([1]);
+    const done = ok(performTurn(first, 1, { action: "invest", nationId: "fra", interest: 2, replaceInterest: null }));
+    expect(done.turn).toMatchObject({ nationId: "ita", phase: "rondel" });
+    expect(describeTurn(done, 1)).toMatchObject({ yours: true, canConfirm: false });
+    expect(done.players[1]?.investor).toBe(true);
+    expect(done.log?.at(-1)?.text).toContain("Bea bought a France bond");
+  });
+
+  it("advances after the final investor passes, including an AI buyer", () => {
+    const started = game({ government: { ah: 0, ita: 0 }, treasury: { ah: 10 }, players: [
+      player(0, 20, { bonds: [{ nation: "ah", interest: 2, price: 4 }, { nation: "ita", interest: 2, price: 4 }], swissBank: false }),
+      player(1, 0, { kind: "ai", investor: false, swissBank: true }),
+    ] });
+    const investing = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const done = ok(performTurn(investing, 0, { action: "invest", nationId: null, interest: null, replaceInterest: null }));
+    expect(done.turn).toMatchObject({ nationId: "ita", phase: "rondel" });
+    expect(done.log?.at(-1)?.text).toContain("Bea passed on buying a bond");
+  });
+
+  it("keeps an ordered public action log across undo and rejects invalid actions without logging", () => {
+    const started = game({});
+    const taxed = ok(performTurn(started, 0, { action: "rondel", index: 0 }));
+    expect(taxed.log?.at(-1)?.text).toContain("Ada chose Taxation for Austria-Hungary");
+    expect(taxed.log?.at(-1)?.text).toContain("treasury: 0 → 4 million");
+    expect(started.log).toBeUndefined();
+    const undone = ok(performTurn(taxed, 0, { action: "undo" }));
+    expect(undone.log?.map((entry) => entry.id)).toEqual([1, 2]);
+    expect(undone.log?.at(-1)?.text).toContain("Ada undid Austria-Hungary's turn");
+    const snapshot = JSON.stringify(undone.log);
+    expect(performTurn(undone, 1, { action: "rondel", index: 0 })).toHaveProperty("error");
+    expect(JSON.stringify(undone.log)).toBe(snapshot);
+    expect(snapshot).not.toContain("cash");
   });
 
   it("ends the game on 25 power and skips the investor purchase", () => {

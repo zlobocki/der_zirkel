@@ -14,6 +14,8 @@ import {
 } from "./constants.js";
 import { playAutomaticDraft, type BondHolding, type DraftCursor, type DraftPlayer } from "./draft.js";
 import { regions } from "./map.js";
+import type { GameLogEntry } from "./log.js";
+import { recordTurn } from "./turn-log.js";
 
 export type Unit = {
   id: string;
@@ -75,6 +77,7 @@ export type BoardPlayer = DraftPlayer & {
 };
 
 export type Board = {
+  log?: GameLogEntry[];
   nations: BoardNation[];
   players: BoardPlayer[];
   piles: Record<NationId, number[]>;
@@ -1070,6 +1073,7 @@ function finishInvest(board: Board): void {
   if (board.turn) {
     board.turn.phase = "confirm";
     board.turn.passedInvestor = false;
+    confirmTurn(board);
   }
 }
 
@@ -1298,7 +1302,7 @@ export function playAutomatic(board: Board): Board {
     if ("error" in applied) {
       break;
     }
-    if (command.action === "confirm") {
+    if (command.action === "confirm" || (current.turn?.phase === "invest" && current.turn.investors.length === 1) || current.turn?.nationId !== applied.turn?.nationId) {
       nations += 1;
       const nextSeat = actingSeat(applied);
       if (nations >= 6 && nextSeat !== null && playerAt(applied, nextSeat)?.kind === "ai" && applied.turn) {
@@ -1315,7 +1319,9 @@ function applyTurn(board: Board, seat: number, command: TurnCommand, automatic: 
     return { error: "This game is over." };
   }
   if (command.action === "treasury") {
-    return gift(board, seat, command.nationId);
+    const next = gift(board, seat, command.nationId);
+    if (!("error" in next)) recordTurn(board, next, seat, command);
+    return next;
   }
   if (command.action === "continue") {
     if (!board.turn?.hold) {
@@ -1325,6 +1331,7 @@ function applyTurn(board: Board, seat: number, command: TurnCommand, automatic: 
     if (next.turn) {
       next.turn.hold = false;
     }
+    recordTurn(board, next, seat, command);
     return automatic ? next : playAutomatic(next);
   }
   if (!board.turn) {
@@ -1338,6 +1345,8 @@ function applyTurn(board: Board, seat: number, command: TurnCommand, automatic: 
       return { error: "Only the government can undo this turn." };
     }
     const restored = beginTurn(structuredClone(board.turn.checkpoint), board.turn.nationId);
+    restored.log = board.log;
+    recordTurn(board, restored, seat, command);
     return automatic ? restored : playAutomatic(restored);
   }
   if (actingSeat(board) !== seat) {
@@ -1348,6 +1357,7 @@ function applyTurn(board: Board, seat: number, command: TurnCommand, automatic: 
   if (error) {
     return { error };
   }
+  recordTurn(board, next, seat, command);
   return automatic ? next : playAutomatic(next);
 }
 

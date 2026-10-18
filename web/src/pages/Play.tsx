@@ -4,6 +4,8 @@ import { ApiError, fetchGame, grantBond, joinGame, takeTurn, type BoardView, typ
 import { Board, NATIONS, PlayerPanel, unitMarkers, type Explosion } from "../board/Board";
 import { bondSrc } from "../board/bonds";
 import { armCombatAudio, playCombatSound } from "../board/combat-audio";
+import { playTurnDing } from "../board/turn-audio";
+import { activePlayerKey } from "../board/turn-notification";
 import { useAuth } from "../auth-context";
 import { gameRemembered, rememberGame } from "../open-games";
 
@@ -490,6 +492,14 @@ function GameTable({
       <div className="play-layout">
         <Board board={board} explosions={explosions} onCommand={(command) => void act(command)} />
         <PlayerPanel board={board} />
+        <section className="card game-log" aria-labelledby="game-log-title">
+          <h2 id="game-log-title">Game log</h2>
+          {board.log?.length ? (
+            <ol reversed aria-label="Game actions">
+              {[...board.log].reverse().map((entry) => <li key={entry.id} value={entry.id}>{entry.text}</li>)}
+            </ol>
+          ) : <p className="notice">Actions taken from now on will appear here.</p>}
+        </section>
       </div>
     </>
   );
@@ -505,6 +515,14 @@ export function Play() {
   const [unlocked, setUnlocked] = useState(() => gameRemembered(gameId));
   const localRevision = useRef(0);
   const refreshGame = useRef<() => void>(() => {});
+  const previousActive = useRef<string | null>(null);
+  const activeKey = activePlayerKey(game?.board ?? null);
+
+  useEffect(() => {
+    const key = activeKey === null ? null : `${gameId}:${activeKey}`;
+    if (key !== null && key !== previousActive.current) playTurnDing();
+    previousActive.current = key;
+  }, [activeKey, gameId]);
 
   useEffect(() => {
     if (!user || !unlocked || !gameId) {

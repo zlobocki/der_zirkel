@@ -74,12 +74,15 @@ describe("experienced bond draft", () => {
     }
     expect(bought.players[0]?.cash).toBe(15);
     expect(bought.nations[0]?.treasury).toBe(25);
+    expect(bought.log?.[0]).toMatchObject({ id: 1, text: "Player 1 bought an opening Austria-Hungary bond for 25 million (8 million interest)." });
     const finished = playAutomaticDraft(passRemaining(bought));
     expect(finished.draft).toBeNull();
     expect(finished.nations.find((nation) => nation.id === "ah")?.government).toBe(0);
     expect(finished.players[0]?.investor).toBe(false);
     expect(finished.players[1]?.investor).toBe(true);
     expect(finished.players[1]?.swissBank).toBe(true);
+    expect(finished.log?.at(-1)?.text).toContain("The opening bond draft is complete");
+    expect(finished.log?.some((entry) => entry.text.includes("passed on the opening"))).toBe(true);
   });
 
   it("breaks an equal credit toward the first seated player and hands out the Swiss bank", () => {

@@ -1,4 +1,6 @@
 import { Link, Route, Routes, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { armTurnAudio } from "./board/turn-audio";
 import { AuthProvider } from "./auth-context";
 import { Account } from "./pages/Account";
 import { Admin } from "./pages/Admin";
@@ -9,6 +11,14 @@ import { Play } from "./pages/Play";
 import { Register } from "./pages/Register";
 
 export function App() {
+  useEffect(() => {
+    document.addEventListener("pointerdown", armTurnAudio, true);
+    document.addEventListener("keydown", armTurnAudio, true);
+    return () => {
+      document.removeEventListener("pointerdown", armTurnAudio, true);
+      document.removeEventListener("keydown", armTurnAudio, true);
+    };
+  }, []);
   return (
     <AuthProvider>
       <Shell />

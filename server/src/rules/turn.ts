@@ -16,6 +16,7 @@ import { playAutomaticDraft, type BondHolding, type DraftCursor, type DraftPlaye
 import { regions } from "./map.js";
 import type { GameLogEntry } from "./log.js";
 import { recordTurn } from "./turn-log.js";
+import { selectAICommand } from "./ai.js";
 
 export type Unit = {
   id: string;
@@ -1242,51 +1243,20 @@ function investmentChoices(board: Board, seat: number): Array<{ nationId: Nation
   return choices;
 }
 
-function aiCommand(board: Board): TurnCommand {
-  const turn = board.turn;
-  if (!turn) {
-    return { action: "confirm" };
-  }
-  if (turn.phase === "rondel") {
-    const choices = rondelChoices(board);
-    const taxation = choices.find((choice) => choice.space === "taxation" && choice.power > 0);
-    const factory = choices.find((choice) => choice.space === "factory" && choice.canBuild);
-    const production = choices.find((choice) => choice.space === "production" && choice.canProduce);
-    return { action: "rondel", index: (taxation ?? factory ?? production ?? choices[0])?.index ?? 0 };
-  }
-  if (turn.phase === "veto") {
-    return { action: "veto", block: false };
-  }
-  if (turn.phase === "factory") {
-    const nation = activeNation(board);
-    const site = nation.treasury >= 5 ? factorySites(board, turn.nationId)[0] : undefined;
-    return { action: "factory", region: site?.region ?? null };
-  }
-  if (turn.phase === "import") {
-    const site = importSites(board, turn.nationId, "army")[0];
-    if (turn.imported === 0 && site && activeNation(board).treasury >= 1) {
-      return { action: "import", kind: "army", region: site };
-    }
-    return { action: "import-done" };
-  }
-  if (turn.phase === "fleets" || turn.phase === "armies") {
-    return { action: "moves-done" };
-  }
-  if (turn.phase === "fleet-battle" || turn.phase === "army-battle") {
-    return { action: "peace" };
-  }
-  if (turn.phase === "destroy") {
-    return { action: "destroy", region: null };
-  }
-  if (turn.phase === "invest") {
-    const seat = turn.investors[0] ?? 0;
-    const choice = investmentChoices(board, seat).sort((left, right) => left.price - right.price)[0];
-    if (!choice) {
-      return { action: "invest", nationId: null, interest: null, replaceInterest: null };
-    }
-    return { action: "invest", nationId: choice.nationId, interest: choice.interest, replaceInterest: choice.replaceInterest };
-  }
-  return { action: "confirm" };
+export function chooseAICommand(board: Board): TurnCommand {
+  const seat = actingSeat(board);
+  if (seat === null) return { action: "confirm" };
+  // A veto currently reopens the same rondel choice. Repeated vetoes can stall
+  // another government indefinitely, so retain the existing allow policy here.
+  if (board.turn?.phase === "veto") return { action: "veto", block: false };
+  return selectAICommand(board, seat, {
+    choices: (position, actor) => describeTurn(position, actor)?.choices.map((choice) => choice.command) ?? [],
+    actor: actingSeat,
+    preview: (position, command) => {
+      const next = structuredClone(position);
+      return dispatch(next, command) ? null : next;
+    },
+  });
 }
 
 export function playAutomatic(board: Board): Board {
@@ -1304,7 +1274,7 @@ export function playAutomatic(board: Board): Board {
     if (!player || player.kind !== "ai") {
       break;
     }
-    const command = aiCommand(current);
+    const command = chooseAICommand(current);
     const applied = applyTurn(current, seat, command, true);
     if ("error" in applied) {
       break;
@@ -1318,6 +1288,10 @@ export function playAutomatic(board: Board): Board {
     }
     current = applied;
   }
+  // Complex maneuvers can exhaust the work limit midway through an AI turn.
+  // Yield an actionable Continue button instead of leaving humans stuck.
+  const remaining = actingSeat(current);
+  if (!current.finished && current.turn && remaining !== null && playerAt(current, remaining)?.kind === "ai") current.turn.hold = true;
   return current;
 }
 

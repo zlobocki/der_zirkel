@@ -180,7 +180,7 @@ export function playAutomaticDraft<T extends DraftPosition>(position: T): T {
     const affordable = nation
       ? current.piles[nation].filter((interest) => (bondPrice(interest) ?? Number.POSITIVE_INFINITY) <= player.cash)
       : [];
-    const interest = affordable.length === 0 ? null : Math.min(...affordable);
+    const interest = chooseDraftBond(current, seat, affordable);
     const next = chooseBond(current, seat, interest);
     if ("error" in next) {
       break;
@@ -188,4 +188,26 @@ export function playAutomaticDraft<T extends DraftPosition>(position: T): T {
     current = next;
   }
   return current;
+}
+
+/** Buy useful income and control without spending the entire opening budget. */
+export function chooseDraftBond(position: DraftPosition, seat: number, affordable?: number[]): number | null {
+  if (!position.draft) return null;
+  const player = position.players.find((entry) => entry.seat === seat);
+  const nation = NATION_ORDER[position.draft.nationIndex];
+  if (!player || !nation) return null;
+  const reserve = Math.min(player.cash * 0.5, (NATION_ORDER.length - position.draft.nationIndex - 1) * 2);
+  const rivalCredit = Math.max(0, ...position.players.filter((entry) => entry.seat !== seat).map((entry) => entry.bonds.filter((bond) => bond.nation === nation).reduce((sum, bond) => sum + bond.price, 0)));
+  const ownCredit = player.bonds.filter((bond) => bond.nation === nation).reduce((sum, bond) => sum + bond.price, 0);
+  const heldCountries = new Set(player.bonds.map((bond) => bond.nation)).size;
+  let best: number | null = null;
+  let score = 0;
+  for (const interest of affordable ?? position.piles[nation]) {
+    const price = bondPrice(interest);
+    if (price === null || price > player.cash - reserve) continue;
+    const control = ownCredit + price > rivalCredit ? 4 / (1 + heldCountries * 0.3) : 0;
+    const value = interest * 3.8 - price + control;
+    if (value > score) { score = value; best = interest; }
+  }
+  return best;
 }

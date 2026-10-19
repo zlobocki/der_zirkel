@@ -318,7 +318,11 @@ describe("lobby", () => {
     expect(passed.statusCode).toBe(200);
     expect(passed.json().game.board.draft).toMatchObject({ nationId: "ita", yours: true });
     expect(passed.json().game.board.players.find((player: { you: boolean }) => player.you).cash).toBe(28);
-    expect(passed.json().game.board.nations.find((nation: { id: string }) => nation.id === "ah").treasury).toBe(6);
+    const board = passed.json().game.board;
+    const invested = board.players.flatMap((player: { bonds: Array<{ nation: string; price: number }> }) => player.bonds)
+      .filter((bond: { nation: string }) => bond.nation === "ah").reduce((sum: number, bond: { price: number }) => sum + bond.price, 0);
+    expect(board.nations.find((nation: { id: string }) => nation.id === "ah").treasury).toBe(invested);
+    expect(invested).toBeGreaterThan(0);
 
     const early = await app.inject({
       method: "POST",

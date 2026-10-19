@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { rememberGame } from "../open-games";
 import {
   ApiError,
@@ -14,6 +14,7 @@ import {
 import { useAuth } from "../auth-context";
 
 export function Lobby() {
+  const navigate = useNavigate();
   const { user, loading } = useAuth();
   const [yours, setYours] = useState<LobbyGame[]>([]);
   const [open, setOpen] = useState<LobbyGame[]>([]);
@@ -189,7 +190,7 @@ export function Lobby() {
         {yours.length === 0 ? <p className="notice">You have no game to enter.</p> : null}
         <ul className="account-list">
           {yours.map((game) => (
-            <GameEntry key={game.id} game={game} action="Enter" onEntered={setEntered} onDelete={() => void onDelete(game)} />
+            <GameEntry key={game.id} game={game} action="Enter" onEntered={(entered) => navigate(`/play/${entered.id}`)} onDelete={() => void onDelete(game)} />
           ))}
         </ul>
       </section>
@@ -198,7 +199,7 @@ export function Lobby() {
         {open.length === 0 ? <p className="notice">No game is waiting for players.</p> : null}
         <ul className="account-list">
           {open.map((game) => (
-            <GameEntry key={game.id} game={game} action="Join" onEntered={setEntered} />
+            <GameEntry key={game.id} game={game} action="Join" onEntered={(entered) => navigate(`/play/${entered.id}`)} />
           ))}
         </ul>
       </section>

@@ -13,7 +13,8 @@ export function GameMusic({ board }: { board: BoardView | null }) {
     return () => { music.dispose(); player.current = null; };
   }, []);
   useEffect(() => { if (nation) player.current?.playVictory(nation); }, [nation]);
-  return <button type="button" className="quiet music-toggle" aria-pressed={state.playing}
+  return <button type="button" className="music-toggle" aria-pressed={state.playing}
+    aria-label={state.playing ? "Turn music off" : nation ? "Play victory music" : "Turn music on"}
     title={state.playing ? "Stop music" : nation ? "Play victory music" : "Play random background music"}
     onClick={() => {
       const music = player.current;
@@ -23,6 +24,11 @@ export function GameMusic({ board }: { board: BoardView | null }) {
       else if (nation) music.playVictory(nation);
       else music.playBackground();
     }}>
-    <span aria-hidden="true">♫</span> {state.playing ? "Music off" : nation ? "Play victory music" : "Music on"}
+    <span className="music-label" aria-hidden="true"><span className="music-pilot" />Music</span>
+    <span className="music-dial" aria-hidden="true">
+      <span className="music-mark music-mark-off">Off</span>
+      <span className="music-mark music-mark-on">On</span>
+      <span className="music-knob" />
+    </span>
   </button>;
 }

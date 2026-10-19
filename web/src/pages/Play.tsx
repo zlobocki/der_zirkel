@@ -438,7 +438,9 @@ function GameTable({
   const currentSeat = board.draft?.seat ?? board.turn?.actorSeat;
   const currentAI = board.players.find((player) => player.seat === currentSeat && player.kind === "ai");
   const latestAction = board.log ? [...board.log].reverse().find((entry) => entry.actorSeat !== undefined) : undefined;
-  const lastAIAction = latestAction && board.players.some((player) => player.seat === latestAction.actorSeat && player.kind === "ai") ? latestAction : null;
+  // Keep the useful action visible when a turn ends, including in existing logs.
+  const latestActivity = board.log ? [...board.log].reverse().find((entry) => entry.actorSeat !== undefined && !/ ended .+'s turn\.$/.test(entry.text)) : undefined;
+  const lastAIAction = latestActivity && board.players.some((player) => player.seat === latestActivity.actorSeat && player.kind === "ai") ? latestActivity : null;
   const lastSoundLog = useRef(board.log?.at(-1)?.id ?? 0);
   useEffect(() => {
     const fresh = (board.log ?? []).filter((entry) => entry.id > lastSoundLog.current);

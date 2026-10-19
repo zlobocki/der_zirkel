@@ -12,7 +12,7 @@ import {
   taxTrack,
   type NationId,
 } from "./constants.js";
-import { playAutomaticDraft, type BondHolding, type DraftCursor, type DraftPlayer } from "./draft.js";
+import { chooseBond, chooseDraftBond, playAutomaticDraft, type BondHolding, type DraftCursor, type DraftPlayer } from "./draft.js";
 import { regions } from "./map.js";
 import type { GameLogEntry } from "./log.js";
 import { recordTurn } from "./turn-log.js";
@@ -42,6 +42,7 @@ export type TurnPhase =
   | "armies"
   | "army-battle"
   | "destroy"
+  | "interest"
   | "invest"
   | "confirm";
 
@@ -56,6 +57,9 @@ export type TurnState = {
   battleRegions: string[];
   battleNations: NationId[];
   attackerDone: boolean;
+  // Interrupt movement for an entry battle, then resume the same movement phase.
+  // null means the end-of-movement battle check; undefined supports saved games.
+  battleResume?: "fleets" | "armies" | null;
   investors: number[];
   vetoSeats: number[];
   pendingIndex: number | null;
@@ -104,6 +108,7 @@ export type TurnCommand =
   | { action: "destroy"; region: string | null }
   | { action: "invest"; nationId: NationId | null; interest: number | null; replaceInterest: number | null }
   | { action: "confirm" }
+  | { action: "confirm-interest" }
   | { action: "undo" }
   | { action: "continue" }
   | { action: "treasury"; nationId: NationId };
@@ -114,6 +119,7 @@ export type TurnChoice = {
 };
 
 export type TurnView = {
+  payouts?: InterestPreview;
   nationId: NationId;
   phase: TurnPhase | "hold";
   yours: boolean;
@@ -122,6 +128,13 @@ export type TurnView = {
   canUndo: boolean;
   canConfirm: boolean;
   actorSeat: number | null;
+};
+
+export type InterestPreview = {
+  treasuryPayment: number;
+  governmentPayment: number;
+  passedInvestor: boolean;
+  players: Array<{ seat: number; interest: number; bonus: number; contribution: number; net: number }>;
 };
 
 const TAX_SPACES = ["tax_2-5", "tax_6", "tax_7", "tax_8", "tax_9", "tax_10", "tax_11", "tax_12", "tax_13", "tax_14", "tax_15+"];
@@ -703,12 +716,13 @@ function moveUnit(board: Board, unitId: string, region: string, posture?: "hosti
     if (unit.kind !== "fleet" || !fleetDestinations(unit).includes(region)) {
       return "That fleet cannot move there.";
     }
-    if (region !== unit.region) {
+    const entering = region !== unit.region;
+    if (entering) {
       unit.region = region;
       unit.harbor = false;
     }
     turn.moved.push(unitId);
-    return null;
+    return entering ? entryBattle(board, region, "fleet") : null;
   }
   if (turn.phase !== "armies" || unit.kind !== "army") {
     return "That unit cannot move.";
@@ -717,6 +731,7 @@ function moveUnit(board: Board, unitId: string, region: string, posture?: "hosti
   if (!destination) {
     return "That army cannot move there.";
   }
+  const entering = unit.region !== region || (posture !== undefined && unit.posture !== posture);
   const foreign = regions.get(region)?.home !== null && regions.get(region)?.home !== unit.nation;
   if (foreign) {
     if (posture !== "hostile" && posture !== "friendly") {
@@ -732,7 +747,7 @@ function moveUnit(board: Board, unitId: string, region: string, posture?: "hosti
   unit.region = region;
   turn.transported = [...(turn.transported ?? []), ...destination.transport];
   turn.moved.push(unitId);
-  return null;
+  return entering ? entryBattle(board, region, "army") : null;
 }
 
 type BattleMode = "fleet" | "army";
@@ -761,6 +776,23 @@ function combatantsInMode(board: Board, mode: BattleMode): Unit[] {
 
 function modeOf(phase: TurnPhase): BattleMode {
   return phase === "fleet-battle" ? "fleet" : "army";
+}
+
+function defendingNations(board: Board, region: string, mode: BattleMode): NationId[] {
+  const present = new Set(combatants(board, region, mode).map((unit) => unit.nation));
+  return NATION_ORDER.filter((id) => id !== board.turn?.nationId && present.has(id)
+    && board.nations.some((nation) => nation.id === id && nation.government !== null));
+}
+
+function entryBattle(board: Board, region: string, mode: BattleMode): string | null {
+  const turn = board.turn;
+  if (!turn || !combatants(board, region, mode).some((unit) => unit.nation !== turn.nationId)) return null;
+  turn.battleResume = mode === "fleet" ? "fleets" : "armies";
+  turn.battleRegions = [region];
+  turn.battleNations = defendingNations(board, region, mode);
+  turn.attackerDone = false;
+  turn.phase = mode === "fleet" ? "fleet-battle" : "army-battle";
+  return null;
 }
 
 function enterFleets(board: Board): string | null {
@@ -796,6 +828,7 @@ function enterBattle(board: Board, mode: BattleMode): string | null {
   board.turn.battleRegions = contested(board, mode);
   board.turn.battleNations = [];
   board.turn.attackerDone = false;
+  board.turn.battleResume = null;
   if (board.turn.battleRegions.length === 0) {
     return mode === "fleet" ? enterArmies(board) : enterDestroy(board);
   }
@@ -812,13 +845,45 @@ function nextBattleRegion(board: Board): string | null {
   turn.battleNations = [];
   turn.attackerDone = false;
   if (turn.battleRegions.length === 0) {
+    if (turn.battleResume) {
+      turn.phase = turn.battleResume;
+      turn.battleResume = null;
+      return null;
+    }
     return turn.phase === "fleet-battle" ? enterArmies(board) : enterDestroy(board);
   }
   return null;
 }
 
 function finishAsking(board: Board): string | null {
-  return nextBattleRegion(board);
+  const turn = board.turn;
+  if (!turn) return null;
+  if (!turn.attackerDone) {
+    // Older saved battles predate immediate defender responses. Only an entry
+    // or posture change gives inactive countries the right to initiate combat.
+    if (turn.battleResume === undefined) {
+      const region = turn.battleRegions[0];
+      const invaded = board.units.some((unit) => {
+        const old = turn.checkpoint.units.find((entry) => entry.id === unit.id);
+        return unit.nation === turn.nationId && unit.region === region
+          && old && (old.region !== unit.region || old.posture !== unit.posture);
+      });
+      turn.battleNations = invaded && region ? defendingNations(board, region, modeOf(turn.phase)) : [];
+    }
+    turn.attackerDone = true;
+  } else {
+    turn.battleNations.shift();
+  }
+  return askNextDefender(board);
+}
+
+function askNextDefender(board: Board): string | null {
+  const turn = board.turn;
+  if (!turn) return null;
+  const present = combatants(board, turn.battleRegions[0] ?? "", modeOf(turn.phase));
+  turn.battleNations = turn.battleNations.filter((id) => present.some((unit) => unit.nation === id));
+  if (!present.some((unit) => unit.nation === turn.nationId) || !turn.battleNations.length) return nextBattleRegion(board);
+  return null;
 }
 
 function fight(board: Board, ownId: string, enemyId: string): string | null {
@@ -834,12 +899,15 @@ function fight(board: Board, ownId: string, enemyId: string): string | null {
   if (!region || !own || !enemy || own.nation === enemy.nation || own.nation !== actorNation) {
     return "Those units cannot fight.";
   }
+  if (turn.attackerDone && enemy.nation !== turn.nationId) {
+    return "A defending country may only fight the active country.";
+  }
   const present = combatants(board, region, mode);
   if (!present.includes(own) || !present.includes(enemy)) {
     return "Those units are not in the same region.";
   }
-  const ours = present.filter((unit) => unit.nation === actorNation);
-  const theirs = present.filter((unit) => unit.nation === enemy.nation);
+  const ours = [own, ...present.filter((unit) => unit.nation === actorNation && unit.id !== ownId)];
+  const theirs = [enemy, ...present.filter((unit) => unit.nation === enemy.nation && unit.id !== enemyId)];
   const pairs = Math.min(ours.length, theirs.length);
   const removed = new Set<string>();
   for (let index = 0; index < pairs; index += 1) {
@@ -853,7 +921,12 @@ function fight(board: Board, ownId: string, enemyId: string): string | null {
     }
   }
   board.units = board.units.filter((unit) => !removed.has(unit.id));
-  return nextBattleRegion(board);
+  if (turn.attackerDone) return finishAsking(board);
+  const remaining = combatants(board, region, mode);
+  if (!remaining.some((unit) => unit.nation === turn.nationId)
+    || !remaining.some((unit) => unit.nation !== turn.nationId)) return nextBattleRegion(board);
+  // The active country can fight another opponent, or ask remaining defenders.
+  return null;
 }
 
 function defenderPresent(board: Board, region: string, owner: NationId): boolean {
@@ -976,7 +1049,33 @@ function beginInvest(board: Board, landed: boolean): string | null {
   if (!board.turn) {
     return null;
   }
-  if (landed) {
+  board.turn.passedInvestor = !landed;
+  board.turn.phase = "interest";
+  return null;
+}
+
+export function previewInterest(board: Board): InterestPreview | undefined {
+  if (board.turn?.phase !== "interest") return undefined;
+  const nation = activeNation(board);
+  const owed = (seat: number) => board.turn?.passedInvestor ? 0 : playerAt(board, seat)?.bonds.filter((bond) => bond.nation === nation.id).reduce((sum, bond) => sum + bond.interest, 0) ?? 0;
+  const total = board.players.reduce((sum, player) => sum + owed(player.seat), 0);
+  const governmentOwed = nation.government === null ? 0 : owed(nation.government);
+  const others = total - governmentOwed;
+  const governmentPayment = Math.max(0, others - nation.treasury);
+  return {
+    treasuryPayment: Math.min(nation.treasury, total), governmentPayment, passedInvestor: board.turn.passedInvestor,
+    players: board.players.map((player) => {
+      const interest = player.seat === nation.government ? Math.min(governmentOwed, Math.max(0, nation.treasury - others)) : owed(player.seat);
+      const contribution = player.seat === nation.government ? governmentPayment : 0;
+      const bonus = player.investor ? 2 : 0;
+      return { seat: player.seat, interest, bonus, contribution, net: interest + bonus - contribution };
+    }),
+  };
+}
+
+function confirmInterest(board: Board): string | null {
+  if (board.turn?.phase !== "interest") return "There are no Investor payouts to confirm.";
+  if (!board.turn.passedInvestor) {
     const error = payInterest(board, activeNation(board).id);
     if (error) {
       return error;
@@ -1166,6 +1265,8 @@ function dispatch(board: Board, command: TurnCommand): string | null {
       return turn.phase === "destroy" ? destroyFactory(board, command.region) : "No factory is being destroyed.";
     case "invest":
       return turn.phase === "invest" ? invest(board, command.nationId, command.interest, command.replaceInterest) : "No bond is being bought.";
+    case "confirm-interest":
+      return confirmInterest(board);
     case "confirm":
       return confirmTurn(board);
     default:
@@ -1175,15 +1276,21 @@ function dispatch(board: Board, command: TurnCommand): string | null {
 
 function rondelChoices(board: Board): Array<{ index: number; cost: number; space: (typeof RONDEL)[number]; power: number; canBuild: boolean; canProduce: boolean }> {
   const nation = activeNation(board);
+  const payer = playerAt(board, nation.government ?? -1);
   const choices = [];
   for (let index = 0; index < RONDEL.length; index += 1) {
     const cost = rondelCost(nation.rondelIndex, index);
-    if (cost === null) {
+    if (cost === null || !payer || payer.cash < cost) {
       continue;
     }
     const space = RONDEL[index];
     if (!space) {
       continue;
+    }
+    if (space === "investor") {
+      const otherInterest = board.players.filter((player) => player.seat !== payer.seat)
+        .flatMap((player) => player.bonds).filter((bond) => bond.nation === nation.id).reduce((sum, bond) => sum + bond.interest, 0);
+      if (Math.max(0, otherInterest - nation.treasury) > payer.cash - cost) continue;
     }
     choices.push({
       index,
@@ -1369,19 +1476,38 @@ function gift(board: Board, seat: number, nationId: NationId): Board | { error: 
   return next;
 }
 
-export function performTurn(board: Board, seat: number, command: TurnCommand): Board | { error: string } {
-  return applyTurn(board, seat, command, false);
+export function performTurn(board: Board, seat: number, command: TurnCommand, automatic = true): Board | { error: string } {
+  return applyTurn(board, seat, command, !automatic);
 }
 
-export function ensurePlay(board: Board): Board {
-  const drafted = playAutomaticDraft(normalizeBoard(board));
+export function ensurePlay(board: Board, automatic = true): Board {
+  const normalized = normalizeBoard(board);
+  const drafted = automatic ? playAutomaticDraft(normalized) : normalized;
   if (drafted.draft || drafted.finished) {
     return drafted;
   }
   if (!drafted.turn) {
-    return playAutomatic(startFirstTurn(drafted));
+    const started = startFirstTurn(drafted);
+    return automatic ? playAutomatic(started) : started;
   }
-  return playAutomatic(drafted);
+  return automatic ? playAutomatic(drafted) : drafted;
+}
+
+export function pendingAI(board: Board): number | null {
+  if (board.finished) return null;
+  const seat = board.draft ? (board.draft.nationIndex + board.draft.offerIndex) % board.players.length : actingSeat(board);
+  return seat !== null && playerAt(board, seat)?.kind === "ai" ? seat : null;
+}
+
+/** Exactly one visible action; chaining belongs to the paced server runner. */
+export function stepAI(board: Board): Board | { error: string } {
+  const seat = pendingAI(board);
+  if (seat === null) return board;
+  if (board.draft) {
+    const next = chooseBond(board, seat, chooseDraftBond(board, seat));
+    return "error" in next ? next : ensurePlay(next, false);
+  }
+  return applyTurn(board, seat, chooseAICommand(board), true);
 }
 
 function choice(label: string, command: TurnCommand): TurnChoice {
@@ -1410,7 +1536,8 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
       actorSeat: null,
     };
   }
-  const base = {
+  const base: TurnView = {
+    payouts: previewInterest(board),
     nationId: turn.nationId,
     phase: turn.phase,
     yours,
@@ -1420,10 +1547,20 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     choices: [] as TurnChoice[],
     actorSeat: actor,
   };
+  if (turn.phase === "fleet-battle" || turn.phase === "army-battle") {
+    const actorNation = turn.attackerDone ? turn.battleNations[0] : turn.nationId;
+    const place = regionName(turn.battleRegions[0] ?? "the region");
+    base.prompt = turn.attackerDone
+      ? `${NATION_NAME[actorNation ?? turn.nationId]} must decide: accept coexistence with ${name} in ${place}, or fight. Friendly armies can still be fought. Peace requires every defending country's agreement.`
+      : `${name} may fight in ${place}, or offer peace. Each defending country can demand battle, even against a friendly army.`;
+  }
   if (!yours) {
     return base;
   }
-  if (turn.phase === "rondel") {
+  if (turn.phase === "interest") {
+    base.prompt = turn.passedInvestor ? "Investor was passed. Review the Investor bonus; no bond interest is paid." : `Review ${name}'s interest payments before buying bonds.`;
+    base.choices = [choice("Confirm payouts and buy bonds", { action: "confirm-interest" })];
+  } else if (turn.phase === "rondel") {
     const from = activeNation(board).rondelIndex;
     base.prompt = `${name} chooses a rondel space.`;
     base.choices = rondelChoices(board).map((entry) => {
@@ -1485,15 +1622,13 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
     const region = turn.battleRegions[0];
     const mode = modeOf(turn.phase);
     const actorNation = turn.attackerDone ? turn.battleNations[0] : turn.nationId;
-    const place = region ? regionName(region) : "the region";
-    base.prompt = `${NATION_NAME[actorNation ?? turn.nationId]} may fight in ${place}, or keep the peace. Fighting removes units from both sides until one side is gone.`;
     if (region && actorNation) {
       const present = combatants(board, region, mode);
       const own = present.find((unit) => unit.nation === actorNation);
       const enemies: Unit[] = [];
       const seen = new Set<string>();
       for (const enemy of present) {
-        if (enemy.nation === actorNation) {
+        if (enemy.nation === actorNation || (turn.attackerDone && enemy.nation !== turn.nationId)) {
           continue;
         }
         const key = `${enemy.nation}:${enemy.kind}`;
@@ -1510,7 +1645,7 @@ export function describeTurn(board: Board, viewerSeat: number | null): TurnView 
         }
       }
     }
-    base.choices.push(choice("No battle", { action: "peace" }));
+    base.choices.push(choice(turn.attackerDone ? "Accept coexistence" : "Offer peace", { action: "peace" }));
   } else if (turn.phase === "destroy") {
     base.prompt = `${name} may destroy a factory by removing three hostile armies. A factory occupied by a hostile army does not add to tax.`;
     base.choices = [

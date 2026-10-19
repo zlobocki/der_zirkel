@@ -78,8 +78,27 @@ export function evaluateAIPosition(board: Board, seat: number, outlook = outlook
       stacks.set(unit.region, stack + 1);
       let position = 0;
       if (unit.kind === "army") {
-        const distance = Math.min(8, ...targets.map((target) => distances.get(unit.region)?.get(target.id) ?? 8));
+        // An army at home can start from any connected, unblocked home province
+        // by rail. Ignoring that made wandering into a neighbour look like progress.
+        const origins = new Set([unit.region]);
+        if (regions.get(unit.region)?.home === nation.id) {
+          const queue = [unit.region];
+          for (let index = 0; index < queue.length; index += 1) {
+            const here = queue[index];
+            if ((byRegion.get(here) ?? []).some((other) => other.kind === "army" && other.nation !== nation.id && other.posture === "hostile")) continue;
+            for (const next of regions.get(here)?.links ?? []) {
+              if (origins.has(next) || regions.get(next)?.home !== nation.id
+                || (byRegion.get(next) ?? []).some((other) => other.kind === "army" && other.nation !== nation.id && other.posture === "hostile")) continue;
+              origins.add(next);
+              queue.push(next);
+            }
+          }
+        }
+        const distance = Math.min(8, ...[...origins].flatMap((origin) => targets.map((target) => distances.get(origin)?.get(target.id) ?? 8)));
         position = targets.length ? (8 - distance) * 0.35 : 0;
+        // A friendly army abroad earns no flag and blocks no factory, yet still
+        // costs upkeep and can be attacked. Prefer captures, defence or occupation.
+        if (regions.get(unit.region)?.home && regions.get(unit.region)?.home !== nation.id && unit.posture === "friendly") position -= 0.8;
         if (!regions.get(unit.region)?.home && flags.get(unit.region) === nation.id) position += 0.7;
         if (regions.get(unit.region)?.home === nation.id) {
           const threat = (regions.get(unit.region)?.links ?? []).some((id) => (byRegion.get(id) ?? []).some((other) => other.kind === "army" && other.nation !== nation.id));
@@ -147,6 +166,8 @@ export function selectAICommand(board: Board, seat: number, rules: SearchRules):
       let score = evaluate(next);
       // Passing and leaving units in place win ties over pointless movement.
       if (command.action === "move" && position.units.find((unit) => unit.id === command.unitId)?.region !== command.region) score -= 0.04;
+      if (command.action === "move" && command.posture === "friendly"
+        && position.units.find((unit) => unit.id === command.unitId)?.region !== command.region) score -= 0.4;
       if (command.action === "rondel") score -= ((command.index - (position.nations.find((nation) => nation.id === position.turn?.nationId)?.rondelIndex ?? command.index) + 8) % 8) * 0.015;
       scored.push({ command, next, score });
     }

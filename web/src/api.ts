@@ -148,7 +148,7 @@ export function deleteGame(id: string): Promise<{ ok: boolean }> {
 }
 
 export type BoardView = {
-  log?: Array<{ id: number; text: string; battle?: "land" | "sea" }>;
+  log?: Array<{ id: number; text: string; battle?: "land" | "sea"; actorSeat?: number }>;
   nations: Array<{
     id: string;
     score: number;
@@ -187,6 +187,12 @@ export type BoardView = {
     choices: Array<{ interest: number; price: number }>;
   } | null;
   turn: {
+    payouts?: {
+      treasuryPayment: number;
+      governmentPayment: number;
+      passedInvestor: boolean;
+      players: Array<{ seat: number; interest: number; bonus: number; contribution: number; net: number }>;
+    };
     nationId: string;
     phase: string;
     yours: boolean;

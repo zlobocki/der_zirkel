@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NATION_ORDER, type NationId } from "./constants.js";
 import { openingPiles } from "./draft.js";
-import { describeTurn, ensurePlay, nationTaxation, performTurn, type Board, type BoardPlayer, type Unit } from "./turn.js";
+import { actingSeat, describeTurn, ensurePlay, nationTaxation, pendingAI, performTurn, stepAI, type Board, type BoardPlayer, type Unit } from "./turn.js";
 
 const FACTORIES: Record<NationId, Array<{ region: string; kind: "land" | "sea" }>> = {
   ah: [
@@ -84,7 +84,191 @@ function ok(board: Board | { error: string }): Board {
   return board;
 }
 
+function confirmPayouts(board: Board): Board {
+  const seat = board.nations.find((nation) => nation.id === board.turn?.nationId)?.government;
+  return ok(performTurn(board, seat!, { action: "confirm-interest" }));
+}
+
+describe("entry and defensive battle rights", () => {
+  function border(defenderKind: "army" | "fleet" = "army"): Board {
+    const board = game({ government: { ita: 1 }, units: [
+      { id: "invader", nation: "ah", kind: "army", region: "LR14", harbor: false, posture: "standing" },
+      { id: "defender", nation: "ita", kind: defenderKind, region: "LR42", harbor: defenderKind === "fleet", posture: "standing" },
+    ] });
+    return ok(performTurn(board, 0, { action: "rondel", index: 3 }, false));
+  }
+  function enter(board = border(), posture: "friendly" | "hostile" = "friendly"): Board {
+    return ok(performTurn(board, 0, { action: "move", unitId: "invader", region: "LR42", posture }, false));
+  }
+
+  it("pauses an AI invasion for the human defender and rejects the attacker's attempts to answer for them", () => {
+    const moving = border();
+    moving.players[0].kind = "ai";
+    const entered = enter(moving);
+    expect(entered.turn).toMatchObject({ phase: "army-battle", battleResume: "armies", attackerDone: false });
+    expect(performTurn(entered, 0, { action: "moves-done" }, false)).toHaveProperty("error");
+    const offered = ok(performTurn(entered, 0, { action: "peace" }, false));
+    expect(actingSeat(offered)).toBe(1);
+    expect(pendingAI(offered)).toBeNull();
+    expect(stepAI(offered)).toBe(offered);
+    expect(describeTurn(offered, 1)).toMatchObject({ yours: true, actorSeat: 1 });
+    expect(describeTurn(offered, 1)?.choices.map((choice) => choice.label)).toEqual(["Fight in Venice", "Accept coexistence"]);
+    expect(describeTurn(offered, 0)?.prompt).toContain("Italy must decide");
+    expect(performTurn(offered, 0, { action: "peace" }, false)).toEqual({ error: "It is not your turn." });
+    const fought = ok(performTurn(offered, 1, { action: "fight", ownId: "defender", enemyId: "invader" }, false));
+    expect(fought.units).toHaveLength(0);
+    expect(fought.turn?.phase).toBe("armies");
+    expect(fought.log?.at(-1)).toMatchObject({ actorSeat: 1, battle: "land" });
+  });
+
+  it("requires both governments to accept peace, then resumes movement without asking again", () => {
+    const offered = ok(performTurn(enter(), 0, { action: "peace" }, false));
+    const accepted = ok(performTurn(offered, 1, { action: "peace" }, false));
+    expect(accepted.units).toHaveLength(2);
+    expect(accepted.turn).toMatchObject({ phase: "armies", moved: ["invader"] });
+    expect(accepted.log?.at(-1)?.text).toContain("Italy accepted coexistence in Venice");
+    const finished = ok(performTurn(accepted, 0, { action: "moves-done" }, false));
+    const settled = ok(performTurn(finished, 0, { action: "peace" }, false));
+    expect(settled.turn?.phase).not.toBe("army-battle");
+  });
+
+  it.each(["friendly", "hostile"] as const)("lets a harbor fleet fight an entering %s army", (posture) => {
+    const moving = border("fleet");
+    const offered = ok(performTurn(enter(moving, posture), 0, { action: "peace" }, false));
+    const fought = ok(performTurn(offered, 1, { action: "fight", ownId: "defender", enemyId: "invader" }, false));
+    expect(fought.units).toHaveLength(0);
+  });
+
+  it("allows defence of the protected last factory, while still forbidding hostile occupation", () => {
+    const moving = border();
+    moving.nations.find((nation) => nation.id === "ita")!.factories = [{ region: "LR42", kind: "sea" }];
+    expect(performTurn(moving, 0, { action: "move", unitId: "invader", region: "LR42", posture: "hostile" }, false)).toHaveProperty("error");
+    const offered = ok(performTurn(enter(moving), 0, { action: "peace" }, false));
+    expect(actingSeat(offered)).toBe(1);
+    expect(describeTurn(offered, 1)?.choices.some((choice) => choice.command.action === "fight")).toBe(true);
+  });
+
+  it("gives defenders a new response when a stationary foreign army changes posture", () => {
+    const moving = border();
+    moving.units[0].region = "LR42";
+    moving.units[0].posture = "friendly";
+    const entered = enter(moving, "hostile");
+    const offered = ok(performTurn(entered, 0, { action: "peace" }, false));
+    expect(actingSeat(offered)).toBe(1);
+  });
+
+  it("asks every defending country, and does not let one defender attack another", () => {
+    const moving = border();
+    moving.players.push(player(2, 20));
+    moving.nations.find((nation) => nation.id === "fra")!.government = 2;
+    moving.units.push({ id: "third", nation: "fra", kind: "army", region: "LR42", harbor: false, posture: "standing" });
+    const offered = ok(performTurn(enter(moving), 0, { action: "peace" }, false));
+    expect(actingSeat(offered)).toBe(1);
+    expect(performTurn(offered, 1, { action: "fight", ownId: "defender", enemyId: "third" }, false)).toHaveProperty("error");
+    const askedThird = ok(performTurn(offered, 1, { action: "peace" }, false));
+    expect(actingSeat(askedThird)).toBe(2);
+    const fought = ok(performTurn(askedThird, 2, { action: "fight", ownId: "third", enemyId: "invader" }, false));
+    expect(fought.units.map((unit) => unit.id)).toEqual(["defender"]);
+    expect(fought.turn?.phase).toBe("armies");
+  });
+
+  it("does not let an initial fight skip surviving defenders", () => {
+    const moving = border();
+    moving.units.push({ ...moving.units[0], id: "support", region: "LR42", posture: "friendly" });
+    moving.units.push({ id: "third", nation: "fra", kind: "army", region: "LR42", harbor: false, posture: "standing" });
+    moving.nations.find((nation) => nation.id === "fra")!.government = 1;
+    const fought = ok(performTurn(enter(moving), 0, { action: "fight", ownId: "invader", enemyId: "defender" }, false));
+    const offered = ok(performTurn(fought, 0, { action: "peace" }, false));
+    expect(offered.turn?.battleNations).toEqual(["fra"]);
+    expect(actingSeat(offered)).toBe(1);
+  });
+
+  it("requires defensive agreement at sea and returns to fleet movement", () => {
+    const board = game({ government: { uk: 1 }, units: [
+      { id: "a", nation: "ah", kind: "fleet", region: "SR7", harbor: false, posture: "standing" },
+      { id: "b", nation: "uk", kind: "fleet", region: "SR6", harbor: false, posture: "standing" },
+    ] });
+    const moving = ok(performTurn(board, 0, { action: "rondel", index: 3 }, false));
+    const entered = ok(performTurn(moving, 0, { action: "move", unitId: "a", region: "SR6" }, false));
+    const offered = ok(performTurn(entered, 0, { action: "peace" }, false));
+    expect(actingSeat(offered)).toBe(1);
+    const fought = ok(performTurn(offered, 1, { action: "fight", ownId: "b", enemyId: "a" }, false));
+    expect(fought.units).toHaveLength(0);
+    expect(fought.turn?.phase).toBe("fleets");
+    expect(fought.log?.at(-1)?.battle).toBe("sea");
+  });
+
+  it("permits friendly entry without a border veto when the province has no defending units", () => {
+    const moving = border();
+    moving.units = moving.units.filter((unit) => unit.id !== "defender");
+    const entered = enter(moving);
+    expect(entered.turn?.phase).toBe("armies");
+    expect(entered.units[0]).toMatchObject({ region: "LR42", posture: "friendly" });
+  });
+
+  it("restores defender responses in a battle saved by the previous version", () => {
+    const entered = enter();
+    delete entered.turn!.battleResume;
+    entered.turn!.battleNations = [];
+    const offered = ok(performTurn(entered, 0, { action: "peace" }, false));
+    expect(actingSeat(offered)).toBe(1);
+  });
+});
+
 describe("nation turns", () => {
+  it("previews everyone's interest and bonus before any payout, then pays exactly once", () => {
+    const started = game({ treasury: { ah: 10 }, players: [
+      player(0, 10, { bonds: [{ nation: "ah", interest: 2, price: 4 }] }),
+      player(1, 20, { bonds: [{ nation: "ah", interest: 4, price: 9 }] }),
+    ] });
+    const review = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    expect(review.turn?.phase).toBe("interest");
+    expect(review.players.map((entry) => entry.cash)).toEqual([10, 20]);
+    expect(review.nations[0].treasury).toBe(10);
+    const expected = { treasuryPayment: 6, governmentPayment: 0, passedInvestor: false, players: [
+      { seat: 0, interest: 2, bonus: 2, contribution: 0, net: 4 },
+      { seat: 1, interest: 4, bonus: 0, contribution: 0, net: 4 },
+    ] };
+    expect(describeTurn(review, 0)?.payouts).toEqual(expected);
+    expect(describeTurn(review, 1)?.payouts).toEqual(expected);
+    expect(describeTurn(review, 1)?.choices).toEqual([]);
+    expect(performTurn(review, 1, { action: "confirm-interest" })).toHaveProperty("error");
+    expect(performTurn(review, 0, { action: "invest", nationId: "ger", interest: 1, replaceInterest: null })).toHaveProperty("error");
+    const paid = confirmPayouts(review);
+    expect(paid.players.map((entry) => entry.cash)).toEqual([14, 24]);
+    expect(paid.nations[0].treasury).toBe(4);
+    expect(paid.turn?.phase).toBe("invest");
+    expect(performTurn(paid, 0, { action: "confirm-interest" })).toHaveProperty("error");
+  });
+
+  it("shows personal contributions and forfeited interest when the treasury is short", () => {
+    const started = game({ treasury: { ah: 1 }, players: [
+      player(0, 10, { bonds: [{ nation: "ah", interest: 2, price: 4 }] }),
+      player(1, 20, { bonds: [{ nation: "ah", interest: 4, price: 9 }] }),
+    ] });
+    const review = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const preview = describeTurn(review, 0)?.payouts;
+    expect(preview).toMatchObject({ treasuryPayment: 1, governmentPayment: 3 });
+    expect(preview?.players[0]).toEqual({ seat: 0, interest: 0, bonus: 2, contribution: 3, net: -1 });
+    const paid = confirmPayouts(review);
+    expect(paid.players[0].cash - review.players[0].cash).toBe(preview?.players[0].net);
+    expect(paid.players[1].cash - review.players[1].cash).toBe(preview?.players[1].net);
+    expect(paid.log?.at(-1)?.text).toContain("Ada contributed 3 million personally");
+    expect(paid.log?.at(-1)?.text).not.toContain("paid Ada 2 million interest");
+  });
+
+  it("reviews only the Investor bonus when the Investor space was passed", () => {
+    const started = game({ rondel: { ah: 3 }, treasury: { ah: 8 }, players: [
+      player(0, 20, { bonds: [{ nation: "ah", interest: 2, price: 4 }], swissBank: false }),
+      player(1, 20, { swissBank: false }),
+    ] });
+    const importing = ok(performTurn(started, 0, { action: "rondel", index: 5 }));
+    const review = ok(performTurn(importing, 0, { action: "import-done" }));
+    expect(review.players[0].cash).toBe(20);
+    expect(describeTurn(review, 0)?.payouts).toMatchObject({ passedInvestor: true, treasuryPayment: 0, governmentPayment: 0 });
+    expect(describeTurn(review, 0)?.payouts?.players[0]).toEqual({ seat: 0, interest: 0, bonus: 2, contribution: 0, net: 2 });
+    expect(confirmPayouts(review).players[0].cash).toBe(22);
+  });
   function transportGame(seas: string[], count = 2, origin = "LR40") {
     return game({ government: { ah: null, uk: 0 }, units: [
       ...Array.from({ length: count }, (_, index): Unit => ({ id: `army-${index}`, nation: "uk", kind: "army", region: origin, harbor: false, posture: "standing" })),
@@ -270,7 +454,7 @@ describe("nation turns", () => {
         player(1, 20, { bonds: [{ nation: "ah", interest: 4, price: 9 }], investor: false, swissBank: true }),
       ],
     });
-    const invested = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const invested = confirmPayouts(ok(performTurn(started, 0, { action: "rondel", index: 4 })));
     expect(invested.players[0]?.cash).toBe(9);
     expect(invested.players[1]?.cash).toBe(24);
     expect(invested.nations.find((nation) => nation.id === "ah")?.treasury).toBe(0);
@@ -299,7 +483,7 @@ describe("nation turns", () => {
     });
     const passed = ok(performTurn(started, 0, { action: "rondel", index: 5 }));
     expect(passed.turn?.phase).toBe("import");
-    const investing = ok(performTurn(passed, 0, { action: "import-done" }));
+    const investing = confirmPayouts(ok(performTurn(passed, 0, { action: "import-done" })));
     expect(investing.nations.find((nation) => nation.id === "ah")?.treasury).toBe(8);
     expect(investing.players[0]?.cash).toBe(22);
     expect(investing.players[0]?.swissBank).toBe(false);
@@ -317,7 +501,7 @@ describe("nation turns", () => {
       player(0, 20, { bonds: [{ nation: "ah", interest: 1, price: 2 }], swissBank: false }),
       player(1, 20, { bonds: [{ nation: "ita", interest: 1, price: 2 }], swissBank: true }),
     ] });
-    const investing = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const investing = confirmPayouts(ok(performTurn(started, 0, { action: "rondel", index: 4 })));
     const first = ok(performTurn(investing, 0, { action: "invest", nationId: "ger", interest: 1, replaceInterest: null }));
     expect(first.turn?.phase).toBe("invest");
     expect(first.turn?.investors).toEqual([1]);
@@ -333,7 +517,7 @@ describe("nation turns", () => {
       player(0, 20, { bonds: [{ nation: "ah", interest: 2, price: 4 }, { nation: "ita", interest: 2, price: 4 }], swissBank: false }),
       player(1, 0, { kind: "ai", investor: false, swissBank: true }),
     ] });
-    const investing = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const investing = confirmPayouts(ok(performTurn(started, 0, { action: "rondel", index: 4 })));
     const done = ok(performTurn(investing, 0, { action: "invest", nationId: null, interest: null, replaceInterest: null }));
     expect(done.turn).toMatchObject({ nationId: "ita", phase: "rondel" });
     expect(done.log?.at(-1)?.text).toContain("Bea passed on buying a bond");
@@ -431,7 +615,7 @@ describe("nation turns", () => {
     const started = game({
       players: [player(0, 10, { investor: true, swissBank: false }), player(1, 0, { investor: false, swissBank: false })],
     });
-    const invested = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const invested = confirmPayouts(ok(performTurn(started, 0, { action: "rondel", index: 4 })));
     expect(invested.players[0]?.cash).toBe(12);
     const interests = (describeTurn(invested, 0)?.choices ?? []).flatMap((entry) => {
       const command = entry.command;
@@ -452,7 +636,7 @@ describe("nation turns", () => {
       ],
     });
     started.piles.ah = started.piles.ah.filter((interest) => interest !== 2);
-    const invested = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const invested = confirmPayouts(ok(performTurn(started, 0, { action: "rondel", index: 4 })));
     expect(invested.players[0]?.cash).toBe(22);
     const choices = describeTurn(invested, 0)?.choices ?? [];
     const interests = (replaceInterest: number | null) =>
@@ -501,7 +685,7 @@ describe("nation turns", () => {
       ],
     });
     started.piles.ah = started.piles.ah.filter((interest) => interest !== 1 && interest !== 2);
-    const invested = ok(performTurn(started, 0, { action: "rondel", index: 4 }));
+    const invested = confirmPayouts(ok(performTurn(started, 0, { action: "rondel", index: 4 })));
     const raises = (describeTurn(invested, 0)?.choices ?? []).flatMap((entry) => {
       const command = entry.command;
       if (command.action !== "invest" || command.nationId !== "ah" || command.interest !== 3) {
@@ -540,7 +724,7 @@ describe("nation turns", () => {
     });
     const passed = ok(performTurn(started, 0, { action: "rondel", index: 5 }));
     expect(passed.turn?.phase).toBe("import");
-    const investing = ok(performTurn(passed, 0, { action: "import-done" }));
+    const investing = confirmPayouts(ok(performTurn(passed, 0, { action: "import-done" })));
     expect(investing.players[0]).toMatchObject({ swissBank: false, investor: true, cash: 22 });
     expect(investing.turn?.phase).toBe("invest");
     expect(describeTurn(investing, 0)?.prompt).toContain("You hold the Investor card");
@@ -635,7 +819,10 @@ describe("nation turns", () => {
     }
     const fought = ok(performTurn(started, 0, command));
     expect(fought.units.filter((unit) => unit.region === "LR8" && unit.nation === "ger")).toHaveLength(1);
-    expect(fought.turn?.phase).not.toBe("army-battle");
+    expect(fought.turn?.phase).toBe("army-battle");
+    expect(describeTurn(fought, 0)?.choices.filter((choice) => choice.command.action === "fight")).toHaveLength(1);
+    const settled = ok(performTurn(fought, 0, { action: "fight", ownId: "uk2", enemyId: "ge1" }));
+    expect(settled.turn?.phase).not.toBe("army-battle");
   });
 
   it("lets one fight settle a region while both sides still have armies", () => {
@@ -678,7 +865,7 @@ describe("nation turns", () => {
     expect(describeTurn(fought, 1)?.phase).not.toBe("army-battle");
   });
 
-  it("keeps the peace in a region without asking the other nation to fight", () => {
+  it("does not let inactive troops initiate combat when no army entered or changed posture", () => {
     const started = game({
       government: { uk: 0, fra: 1 },
       units: [

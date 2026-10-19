@@ -140,7 +140,7 @@ export function Lobby() {
       <form className="card" onSubmit={onCreate}>
         <h2>Create a game</h2>
         <p className="notice">
-          You take the first seat. Further people sit in the order they join, and AI seats are filled now. The game
+          Player order, including AI opponents, is drawn randomly when all people have joined. The game
           starts when every person has joined. The password is required every time someone enters.
         </p>
         <label>

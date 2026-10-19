@@ -44,6 +44,8 @@ export async function migrate(sql: postgres.Sql): Promise<void> {
   await sql`alter table games add column if not exists ai_seats smallint`;
   await sql`alter table games add column if not exists created_by uuid references users (id) on delete set null`;
   await sql`alter table games add column if not exists state jsonb not null default '{}'::jsonb`;
+  await sql`alter table games add column if not exists ai_next_move_at timestamptz`;
+  await sql`create index if not exists games_due_ai on games (ai_next_move_at) where status = 'playing' and ai_next_move_at is not null`;
   await sql`alter table game_players add column if not exists seat_index smallint`;
   // PostgreSQL delivers these only after commit, across all server instances.
   await sql`

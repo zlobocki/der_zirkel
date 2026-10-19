@@ -38,9 +38,22 @@ describe("strategic AI decisions", () => {
     const command = chooseAICommand(board);
     expect(command.action).toBe("move");
     expect(command).not.toMatchObject({ region: "LR14" });
+    expect(command).not.toMatchObject({ posture: "friendly" });
     const result = apply(board, command);
     expect(result.units[0].region).not.toBe("LR14");
     expect(board.units[0].region).toBe("LR14");
+  });
+
+  it("avoids pointless friendly incursions from home and prefers a useful neutral capture", () => {
+    for (const region of ["LR14", "LR16", "LR18", "LR15", "LR17"]) {
+      const board = table();
+      board.turn!.phase = "armies";
+      board.units = [{ id: "army", nation: "ah", kind: "army", region, harbor: false, posture: "standing" }];
+      const command = chooseAICommand(board);
+      expect(command.action).toBe("move");
+      if (command.action !== "move") throw new Error("Expected expansion");
+      expect(regions.get(command.region)?.home).toBeNull();
+    }
   });
 
   it("fights a profitable battle and declines a losing exchange", () => {
@@ -52,6 +65,24 @@ describe("strategic AI decisions", () => {
       { id: "enemy", nation: "ita", kind: "army", region: "LR8", harbor: false, posture: "standing" },
     ];
     expect(chooseAICommand(board).action).toBe("fight");
+    board.units = [board.units[0], ...["c", "d", "e"].map((id) => ({ ...board.units[2], id }))];
+    expect(chooseAICommand(board).action).toBe("peace");
+  });
+
+  it("evaluates a defensive battle for the defending government's owner", () => {
+    const board = table();
+    board.turn!.nationId = "ita";
+    board.turn!.phase = "army-battle";
+    board.turn!.battleRegions = ["LR8"];
+    board.turn!.battleNations = ["ah"];
+    board.turn!.attackerDone = true;
+    board.turn!.battleResume = "armies";
+    board.units = [
+      ...["a", "b"].map((id) => ({ id, nation: "ah" as const, kind: "army" as const, region: "LR8", harbor: false, posture: "standing" as const })),
+      { id: "invader", nation: "ita", kind: "army", region: "LR8", harbor: false, posture: "friendly" },
+    ];
+    expect(actingSeat(board)).toBe(0);
+    expect(chooseAICommand(board)).toMatchObject({ action: "fight", ownId: "a", enemyId: "invader" });
     board.units = [board.units[0], ...["c", "d", "e"].map((id) => ({ ...board.units[2], id }))];
     expect(chooseAICommand(board).action).toBe("peace");
   });

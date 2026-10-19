@@ -1,8 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import postgres from "postgres";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { migrate } from "./migrate.js";
+import * as seating from "./seating.js";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
@@ -39,12 +40,18 @@ describe("lobby", () => {
       sessionSecret,
       secureCookies: false,
       logger: false,
+      aiMoveDelayMs: 10,
     });
   });
 
   beforeEach(async () => {
+    // Keep the existing rules scenarios deterministic; shuffle itself is
+    // checked separately, and the reordered-start scenario below reverses it.
+    vi.spyOn(seating, "shuffleSeats").mockImplementation((seats) => seats.map((seat) => ({ ...seat })));
     await sql`truncate table game_players, games, sessions, users cascade`;
   });
+
+  afterEach(() => vi.restoreAllMocks());
 
   afterAll(async () => {
     await app.close();
@@ -64,6 +71,27 @@ describe("lobby", () => {
   it("requires a signed-in player", async () => {
     const response = await app.inject({ method: "GET", url: "/api/games" });
     expect(response.statusCode).toBe(401);
+  });
+
+  it("draws player order once at startup and keeps every game summary in sync", async () => {
+    vi.mocked(seating.shuffleSeats).mockImplementation((seats) => [...seats].reverse().map((seat, index) => ({ ...seat, seat: index })));
+    const ada = await register("Ada", "ada@example.com");
+    const bea = await register("Bea", "bea@example.com");
+    const created = await app.inject({ method: "POST", url: "/api/games", headers: { cookie: ada.cookie },
+      payload: { name: "Random Seats", password: "open-sesame", humanSeats: 2, aiSeats: 1 } });
+    const id = created.json().game.id;
+    expect(seating.shuffleSeats).not.toHaveBeenCalled();
+    const joined = await app.inject({ method: "POST", url: `/api/games/${id}/join`, headers: { cookie: bea.cookie }, payload: { password: "open-sesame" } });
+    expect(joined.json().game.yourSeat).toBe(1);
+    const opened = await app.inject({ method: "GET", url: `/api/games/${id}`, headers: { cookie: ada.cookie } });
+    expect(opened.json().game.yourSeat).toBe(2);
+    expect(opened.json().game.seats.map((seat: { username: string }) => seat.username)).toEqual(["AI 1", "Bea", "Ada"]);
+    expect(opened.json().game.board.players.find((player: { you: boolean }) => player.you).seat).toBe(2);
+    const again = await app.inject({ method: "GET", url: `/api/games/${id}`, headers: { cookie: ada.cookie } });
+    expect(again.json().game.seats).toEqual(opened.json().game.seats);
+    const lobby = await app.inject({ method: "GET", url: "/api/games", headers: { cookie: ada.cookie } });
+    expect(lobby.json().yours[0].yourSeat).toBe(2);
+    expect(seating.shuffleSeats).toHaveBeenCalledTimes(1);
   });
 
   it("seats the creator, fills AI immediately, and starts a solo game", async () => {
@@ -316,9 +344,15 @@ describe("lobby", () => {
       payload: { interest: null },
     });
     expect(passed.statusCode).toBe(200);
-    expect(passed.json().game.board.draft).toMatchObject({ nationId: "ita", yours: true });
+    expect(passed.json().game.board.draft).toMatchObject({ nationId: "ah", yours: false });
+    let advanced = passed.json().game;
+    for (let attempt = 0; attempt < 50 && !advanced.board.draft.yours; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      advanced = (await app.inject({ method: "GET", url: `/api/games/${gameId}`, headers: { cookie: ada.cookie } })).json().game;
+    }
+    expect(advanced.board.draft).toMatchObject({ nationId: "ita", yours: true });
     expect(passed.json().game.board.players.find((player: { you: boolean }) => player.you).cash).toBe(28);
-    const board = passed.json().game.board;
+    const board = advanced.board;
     const invested = board.players.flatMap((player: { bonds: Array<{ nation: string; price: number }> }) => player.bonds)
       .filter((bond: { nation: string }) => bond.nation === "ah").reduce((sum: number, bond: { price: number }) => sum + bond.price, 0);
     expect(board.nations.find((nation: { id: string }) => nation.id === "ah").treasury).toBe(invested);

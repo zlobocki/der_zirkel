@@ -241,6 +241,14 @@ button.quiet {
 }
 
 .game-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.ai-activity { margin: 1rem 0; padding: 0.8rem 1rem; border-left: 3px solid #edcb66; background: #21151a; color: #f8efd8; }
+.ai-activity strong { color: #edcb66; }
+.ai-activity p { margin: 0.3rem 0 0; line-height: 1.4; }
+.ai-move-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+.ai-move-layer line { stroke: #ffe680; stroke-width: 1.1; stroke-dasharray: 3 1.5; filter: drop-shadow(0 0 0.4px #000); }
+.ai-move-layer circle { stroke: #ffe680; stroke-width: 1.1; fill: #ffe68022; animation: ai-arrival 0.9s ease-out; }
+@keyframes ai-arrival { from { opacity: 1; r: 1px; } to { opacity: 0.4; r: 5px; } }
+@media (prefers-reduced-motion: reduce) { .ai-move-layer circle { animation: none; } }
 button.music-toggle { padding: 0.35rem 0.65rem; font-size: 0.9rem; margin: 0; }
 
 .game-log ol {
@@ -424,6 +432,12 @@ button.bond-raise img {
 
 .bond-confirmation::backdrop {
   background: rgb(0 0 0 / 65%);
+}
+
+.bond-confirmation button.quiet {
+  color: #281c13;
+  border-color: #6b4d32;
+  background: #ede0c6;
 }
 
 .bond-intent {

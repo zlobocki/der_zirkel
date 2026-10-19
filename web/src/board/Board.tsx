@@ -218,6 +218,7 @@ function arrivalSlot(board: BoardView, unit: BoardView["units"][number], region:
 }
 
 export type Explosion = { id: string; x: number; y: number };
+export type MoveTrail = { id: string; from: { x: number; y: number }; to: { x: number; y: number } };
 
 export function unitMarkers(board: BoardView): Array<{ id: string; x: number; y: number }> {
   const laid = occupants(board);
@@ -262,10 +263,12 @@ export function Board({
   board,
   onCommand,
   explosions = [],
+  moveTrails = [],
 }: {
   board: BoardView;
   onCommand?: (command: Record<string, unknown>) => void;
   explosions?: Explosion[];
+  moveTrails?: MoveTrail[];
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<Camera>({ scale: 1, x: 0, y: 0, baseWidth: 0 });
@@ -656,6 +659,13 @@ export function Board({
               </span>
             );
           })}
+          {moveTrails.length ? <svg className="ai-move-layer" viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`} aria-hidden="true">
+            <defs><marker id="ai-move-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ffe680" /></marker></defs>
+            {moveTrails.map((move) => <g key={move.id}>
+              <line x1={move.from.x} y1={move.from.y} x2={move.to.x} y2={move.to.y} markerEnd="url(#ai-move-arrow)" />
+              <circle cx={move.to.x} cy={move.to.y} r="3.5" />
+            </g>)}
+          </svg> : null}
           {explosions.map((blast) => (
             <Piece key={blast.id} x={blast.x} y={blast.y} className="explosion" title="Explosion">
               <span className="explosion-burst" />

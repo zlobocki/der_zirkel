@@ -10,6 +10,7 @@ import { registerGameRoutes } from "./games.js";
 import type { Database } from "./db.js";
 
 export type AppOptions = {
+  aiMoveDelayMs?: number;
   db: Database;
   sessionSecret: string;
   initialAdminEmail?: string;
@@ -78,6 +79,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   registerGameRoutes(app, {
+    aiMoveDelayMs: options.aiMoveDelayMs,
     sql: options.db.sql,
     sessionSecret: options.sessionSecret,
     secureCookies: options.secureCookies ?? false,

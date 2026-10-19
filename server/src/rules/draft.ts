@@ -98,7 +98,7 @@ export function chooseBond<T extends DraftPosition>(position: T, seat: number, i
   const name = (player as DraftPlayer & { username?: string | null }).username ?? (player.kind === "ai" ? `AI ${seat + 1}` : `Player ${seat + 1}`);
   appendLog(next, interest === null
     ? `${name} passed on the opening ${NATION_NAME[nation]} bond.`
-    : `${name} bought an opening ${NATION_NAME[nation]} bond for ${bondPrice(interest)} million (${interest} million interest).`);
+    : `${name} bought an opening ${NATION_NAME[nation]} bond for ${bondPrice(interest)} million (${interest} million interest).`, seat);
   if (!next.draft) {
     appendLog(next, `The opening bond draft is complete. ${next.nations.filter((entry) => entry.government !== null).map((entry) => {
       const leader = next.players.find((person) => person.seat === entry.government) as (DraftPlayer & { username?: string | null }) | undefined;

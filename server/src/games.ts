@@ -5,17 +5,21 @@ import { z } from "zod";
 import { clearAuthCookie, fieldError, loadSessionUser, type SessionUser } from "./auth.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 import { registerGameEvents } from "./game-events.js";
+import { shuffleSeats } from "./seating.js";
+import { nextAIMove, registerAIRunner } from "./ai-runner.js";
 import { NATION_ORDER, bondPrice, type NationId } from "./rules/constants.js";
 import { actorSeat, availableBonds, chooseBond, openingPiles, type DraftCursor } from "./rules/draft.js";
 import { describeTurn, ensurePlay, nationTaxation, performTurn, scoreboard, type Board, type TurnCommand } from "./rules/turn.js";
 
 type GameOptions = {
+  aiMoveDelayMs?: number;
   sql: postgres.Sql | null;
   sessionSecret: string;
   secureCookies: boolean;
 };
 
 type GameRow = {
+  table_seats?: StoredSeat[];
   id: string;
   name: string;
   status: string;
@@ -90,7 +94,8 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
-function publicSeats(game: Pick<GameRow, "human_seats" | "ai_seats">, players: PlayerRow[], userId: string) {
+function publicSeats(game: Pick<GameRow, "human_seats" | "ai_seats" | "table_seats">, players: PlayerRow[], userId: string) {
+  if (game.table_seats) return game.table_seats.map((seat) => ({ seat: seat.seat, kind: seat.kind, username: seat.username, you: seat.userId === userId }));
   const bySeat = new Map(players.map((player) => [player.seat_index, player]));
   const seats: Array<{ seat: number; kind: "human" | "ai"; username: string | null; you: boolean }> = [];
   for (let seat = 0; seat < game.human_seats; seat += 1) {
@@ -126,7 +131,8 @@ const NATIONS: Board["nations"] = [
   { id: "rus", score: 0, tax: "tax_2-5", rondel: "Rondelcenter", rondelIndex: null, treasury: 0, government: null, factories: [{ region: "LR21", kind: "land" }, { region: "LR24", kind: "sea" }] },
 ];
 
-function seatList(game: Pick<GameRow, "human_seats" | "ai_seats">, players: PlayerRow[]): StoredSeat[] {
+function seatList(game: Pick<GameRow, "human_seats" | "ai_seats">, players: PlayerRow[], board?: Board | null): StoredSeat[] {
+  if (board) return board.players.map(({ seat, kind, userId, username }) => ({ seat, kind, userId, username }));
   const bySeat = new Map(players.map((player) => [player.seat_index, player]));
   const seats: StoredSeat[] = [];
   for (let seat = 0; seat < game.human_seats; seat += 1) {
@@ -153,7 +159,7 @@ function openingBoard(game: Pick<GameRow, "human_seats" | "ai_seats">, players: 
   const cash = STARTING_CASH[game.human_seats + game.ai_seats] ?? 40;
   return ensurePlay({
     nations: NATIONS.map((nation) => ({ ...nation, factories: nation.factories.map((factory) => ({ ...factory })) })),
-    players: seatList(game, players).map((seat) => ({
+    players: shuffleSeats(seatList(game, players)).map((seat) => ({
       ...seat,
       cash,
       bonds: [],
@@ -167,7 +173,7 @@ function openingBoard(game: Pick<GameRow, "human_seats" | "ai_seats">, players: 
     nextUnit: 1,
     finished: false,
     turn: null,
-  });
+  }, false);
 }
 
 function prepareBoard(board: Board): Board {
@@ -175,7 +181,7 @@ function prepareBoard(board: Board): Board {
     ...board,
     piles: board.piles ?? openingPiles(),
     draft: board.draft === undefined ? { nationIndex: 0, offerIndex: 0 } : board.draft,
-  });
+  }, false);
 }
 
 function boardForViewer(board: Board | null, userId: string) {
@@ -238,7 +244,7 @@ function parseTurnCommand(body: unknown): TurnCommand | null {
   if (action === "import" && (value.kind === "army" || value.kind === "fleet") && typeof value.region === "string") {
     return { action, kind: value.kind, region: value.region };
   }
-  if (action === "import-done" || action === "moves-done" || action === "peace" || action === "confirm" || action === "undo" || action === "continue") {
+  if (action === "import-done" || action === "moves-done" || action === "peace" || action === "confirm" || action === "confirm-interest" || action === "undo" || action === "continue") {
     return { action };
   }
   if (action === "move" && typeof value.unitId === "string" && typeof value.region === "string") {
@@ -297,6 +303,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
   }
 
   registerGameEvents(app, sql, requireUser);
+  registerAIRunner(app, sql, options.aiMoveDelayMs);
 
   async function loadPlayers(query: postgres.TransactionSql, gameId: string): Promise<PlayerRow[]> {
     return query<PlayerRow[]>`
@@ -314,9 +321,10 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
     `;
     const previous = existing[0]?.state?.board ?? null;
     const board = game.status === "playing" ? (previous ?? openingBoard(game, players)) : null;
+    game.table_seats = seatList(game, players, board);
     await query`
       update games
-      set state = ${query.json({ phase: game.status, seats: seatList(game, players), board })}
+      set state = ${query.json({ phase: game.status, seats: game.table_seats, board })}, ai_next_move_at = ${nextAIMove(board, options.aiMoveDelayMs)}
       where id = ${game.id}::uuid
     `;
   }
@@ -334,6 +342,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
         g.human_seats,
         g.ai_seats,
         g.created_by,
+        g.state -> 'seats' as table_seats,
         creator.username as creator,
         gp.game_id as player_game_id,
         gp.user_id,
@@ -354,6 +363,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
         entry = {
           game: {
             id: row.id,
+            table_seats: row.table_seats,
             name: row.name,
             status: row.status,
             human_seats: row.human_seats,
@@ -392,7 +402,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
       return reply.code(404).send({ error: "That game does not exist." });
     }
     const rows = await sql<Array<GameRow & { state: { board?: BoardState | null } }>>`
-      select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state
+      select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state -> 'seats' as table_seats, g.state
       from games g
       left join users u on u.id = g.created_by
       where g.id = ${id.data}::uuid
@@ -425,17 +435,17 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
       game.status = "finished";
       await sql`
         update games
-        set status = 'finished', state = ${sql.json({ phase: "finished", seats: seatList(game, players), board })}
-        where id = ${game.id}::uuid
+        set status = 'finished', state = ${sql.json({ phase: "finished", seats: seatList(game, players, board), board })}
+        where id = ${game.id}::uuid and state = ${sql.json(game.state)}
       `;
     } else if (game.status === "playing" && board && JSON.stringify(game.state?.board ?? null) !== JSON.stringify(board)) {
       await sql`
         update games
-        set state = ${sql.json({ phase: game.status, seats: seatList(game, players), board })}
-        where id = ${game.id}::uuid
+        set state = ${sql.json({ phase: game.status, seats: seatList(game, players, board), board })}, ai_next_move_at = ${nextAIMove(board, options.aiMoveDelayMs)}
+        where id = ${game.id}::uuid and state = ${sql.json(game.state)}
       `;
     }
-    return { game: { ...summarize({ ...game, password_hash: null }, players, user.id), board: boardForViewer(board, user.id) } };
+    return { game: { ...summarize({ ...game, table_seats: seatList(game, players, board), password_hash: null }, players, user.id), board: boardForViewer(board, user.id) } };
   });
 
   app.post("/api/games", async (request, reply) => {
@@ -507,7 +517,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
     }
     const outcome = await sql.begin(async (tx) => {
       const rows = await tx<GameRow[]>`
-        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash
+        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state -> 'seats' as table_seats
         from games g
         left join users u on u.id = g.created_by
         where g.id = ${id.data}::uuid
@@ -569,7 +579,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
     }
     const outcome = await sql.begin(async (tx) => {
       const rows = await tx<Array<GameRow & { state: { board?: BoardState | null; phase?: string } }>>`
-        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state
+        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state -> 'seats' as table_seats, g.state
         from games g
         left join users u on u.id = g.created_by
         where g.id = ${id.data}::uuid
@@ -592,13 +602,13 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
       if ("error" in chosen) {
         return { status: 409, body: { error: chosen.error } };
       }
-      const next = ensurePlay({ ...board, ...chosen });
+      const next = ensurePlay({ ...board, ...chosen }, false);
       if (next.finished) {
         game.status = "finished";
       }
       await tx`
         update games
-        set status = ${game.status}, state = ${tx.json({ phase: game.status, seats: seatList(game, players), board: next })}
+        set status = ${game.status}, state = ${tx.json({ phase: game.status, seats: seatList(game, players, next), board: next })}, ai_next_move_at = ${nextAIMove(next, options.aiMoveDelayMs)}
         where id = ${game.id}::uuid
       `;
       return {
@@ -624,7 +634,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
     }
     const outcome = await sql.begin(async (tx) => {
       const rows = await tx<Array<GameRow & { state: { board?: Board | null } }>>`
-        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state
+        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state -> 'seats' as table_seats, g.state
         from games g
         left join users u on u.id = g.created_by
         where g.id = ${id.data}::uuid
@@ -643,7 +653,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
       if (seat === undefined) {
         return { status: 403, body: { error: "You are not seated at this game." } };
       }
-      const played = performTurn(board, seat, command);
+      const played = performTurn(board, seat, command, false);
       if ("error" in played) {
         return { status: 409, body: { error: played.error } };
       }
@@ -652,7 +662,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
       }
       await tx`
         update games
-        set status = ${game.status}, state = ${tx.json({ phase: game.status, seats: seatList(game, players), board: played })}
+        set status = ${game.status}, state = ${tx.json({ phase: game.status, seats: seatList(game, players, played), board: played })}, ai_next_move_at = ${nextAIMove(played, options.aiMoveDelayMs)}
         where id = ${game.id}::uuid
       `;
       return {
@@ -674,7 +684,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
     }
     const outcome = await sql.begin(async (tx) => {
       const rows = await tx<GameRow[]>`
-        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash
+        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state -> 'seats' as table_seats
         from games g
         left join users u on u.id = g.created_by
         where g.id = ${id.data}::uuid
@@ -716,7 +726,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
     }
     const outcome = await sql.begin(async (tx) => {
       const rows = await tx<GameRow[]>`
-        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash
+        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state -> 'seats' as table_seats
         from games g
         left join users u on u.id = g.created_by
         where g.id = ${id.data}::uuid
@@ -746,7 +756,7 @@ export function registerGameRoutes(app: FastifyInstance, options: GameOptions): 
     }
     const outcome = await sql.begin(async (tx) => {
       const rows = await tx<GameRow[]>`
-        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash
+        select g.id, g.name, g.status, g.human_seats, g.ai_seats, g.created_by, u.username as creator, g.password_hash, g.state -> 'seats' as table_seats
         from games g
         left join users u on u.id = g.created_by
         where g.id = ${id.data}::uuid

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, fetchGame, grantBond, joinGame, takeTurn, type BoardView, type SeatedGame } from "../api";
-import { Board, NATIONS, PlayerPanel, unitMarkers, type Explosion } from "../board/Board";
+import { Board, NATIONS, PlayerPanel, unitMarkers, type Explosion, type MoveTrail } from "../board/Board";
 import { bondSrc } from "../board/bonds";
 import { armCombatAudio, playCombatSound, stopCombatSound } from "../board/combat-audio";
 import { GameMusic } from "../board/GameMusic";
@@ -359,7 +359,8 @@ function NationTurn({
 
   const nationName = NATIONS.find((nation) => nation.id === turn.nationId)?.name ?? "the nation";
   const buyer = board.players.find((player) => player.seat === turn.actorSeat);
-  const heading = turn.phase === "invest" ? `${nationName} - ${buyer?.username ?? "A player"} currently buying bonds` : nationName;
+  const heading = turn.phase === "invest" ? `${nationName} - ${buyer?.username ?? "A player"} currently buying bonds`
+    : turn.phase === "army-battle" || turn.phase === "fleet-battle" ? `${nationName} — ${buyer?.username ?? "A government"} decides on battle` : nationName;
   const you = board.players.find((player) => player.you);
   const nation = board.nations.find((entry) => entry.id === turn.nationId);
   const canPay = Boolean(you && nation && nation.government === you.seat && (you.cash ?? 0) >= 1);
@@ -373,6 +374,22 @@ function NationTurn({
         {turnHint(board, turn)}
       </p>
       <BondMarket board={board} pending={pending} onAct={onAct} />
+      {turn.payouts ? <section className="investor-payouts" aria-label="Investor payout preview">
+        <h3>Investor payouts</h3>
+        <p>{nationName}'s treasury pays {turn.payouts.treasuryPayment} million.
+          {turn.payouts.governmentPayment > 0 ? ` Its controller must contribute ${turn.payouts.governmentPayment} million personally.` : ""}
+          {turn.payouts.passedInvestor ? " No bond interest is paid when Investor is passed." : ""}
+        </p>
+        <ul>
+          {turn.payouts.players.map((payout) => <li key={payout.seat}>
+            <strong>{board.players.find((player) => player.seat === payout.seat)?.username ?? "Player"}</strong>: {payout.interest} million interest
+            {payout.bonus ? ` + ${payout.bonus} million Investor bonus` : ""}
+            {payout.contribution ? ` − ${payout.contribution} million contribution` : ""}
+            {` = ${payout.net} million net`}
+          </li>)}
+        </ul>
+        <p>{turn.yours ? "Confirm to make these payments and open bond buying." : "Waiting for the controller to confirm these payments."}</p>
+      </section> : null}
       {canPay ? (
         <p className="row-actions">
           <button type="button" disabled={pending} onClick={() => onAct({ action: "treasury", nationId: turn.nationId })}>
@@ -413,8 +430,15 @@ function GameTable({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [explosions, setExplosions] = useState<Explosion[]>([]);
+  const [moves, setMoves] = useState<MoveTrail[]>([]);
+  const previousBoard = useRef(board);
+  const movementTimer = useRef<number | null>(null);
   const busy = useRef(false);
   const blastTimer = useRef<number | null>(null);
+  const currentSeat = board.draft?.seat ?? board.turn?.actorSeat;
+  const currentAI = board.players.find((player) => player.seat === currentSeat && player.kind === "ai");
+  const latestAction = board.log ? [...board.log].reverse().find((entry) => entry.actorSeat !== undefined) : undefined;
+  const lastAIAction = latestAction && board.players.some((player) => player.seat === latestAction.actorSeat && player.kind === "ai") ? latestAction : null;
   const lastSoundLog = useRef(board.log?.at(-1)?.id ?? 0);
   useEffect(() => {
     const fresh = (board.log ?? []).filter((entry) => entry.id > lastSoundLog.current);
@@ -422,7 +446,44 @@ function GameTable({
     const battle = [...fresh].reverse().find((entry) => entry.battle);
     if (battle?.battle) void playCombatSound(battle.battle);
   }, [board.log]);
-  useEffect(() => () => stopCombatSound(), []);
+  useEffect(() => {
+    const before = previousBoard.current;
+    previousBoard.current = board;
+    const markers = new Map(unitMarkers(before).map((marker) => [marker.id, marker]));
+    if (lastAIAction) {
+      const trails = unitMarkers(board).flatMap((marker) => {
+        const from = markers.get(marker.id);
+        const oldUnit = before.units.find((unit) => unit.id === marker.id);
+        const newUnit = board.units.find((unit) => unit.id === marker.id);
+        return from && oldUnit?.region !== newUnit?.region ? [{ id: `${marker.id}-${lastAIAction.id}`, from, to: marker }] : [];
+      });
+      if (trails.length) {
+        setMoves(trails);
+        if (movementTimer.current !== null) window.clearTimeout(movementTimer.current);
+        movementTimer.current = window.setTimeout(() => setMoves([]), 1100);
+      }
+    }
+    if (latestAction?.battle) {
+      const remaining = new Set(board.units.map((unit) => unit.id));
+      const seen = new Set<string>();
+      const blasts = [...markers.values()].filter((marker) => {
+        const key = `${marker.x},${marker.y}`;
+        if (remaining.has(marker.id) || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).map((marker) => ({ ...marker, id: `${marker.id}-${latestAction.id}` }));
+      if (blasts.length) {
+        setExplosions(blasts);
+        if (blastTimer.current !== null) window.clearTimeout(blastTimer.current);
+        blastTimer.current = window.setTimeout(() => setExplosions([]), 1100);
+      }
+    }
+  }, [board]);
+  useEffect(() => () => {
+    stopCombatSound();
+    if (blastTimer.current !== null) window.clearTimeout(blastTimer.current);
+    if (movementTimer.current !== null) window.clearTimeout(movementTimer.current);
+  }, []);
 
   async function act(command: Record<string, unknown>) {
     if (busy.current) {
@@ -431,42 +492,12 @@ function GameTable({
     if (command.action === "fight") {
       armCombatAudio();
     }
-    const before = board;
     busy.current = true;
     setError(null);
     setPending(true);
     try {
       const result = await takeTurn(gameId, command);
       if (result.game.board) {
-        if (command.action === "fight") {
-          const gone = new Set(result.game.board.units.map((unit) => unit.id));
-          const removed = new Set(before.units.filter((unit) => !gone.has(unit.id)).map((unit) => unit.id));
-          if (removed.size > 0) {
-            const seen = new Set<string>();
-            const blasts: Explosion[] = [];
-            for (const marker of unitMarkers(before)) {
-              if (!removed.has(marker.id)) {
-                continue;
-              }
-              const key = `${marker.x},${marker.y}`;
-              if (seen.has(key)) {
-                continue;
-              }
-              seen.add(key);
-              blasts.push({ id: `${marker.id}-${Date.now()}`, x: marker.x, y: marker.y });
-            }
-            if (blasts.length > 0) {
-              if (blastTimer.current !== null) {
-                window.clearTimeout(blastTimer.current);
-              }
-              setExplosions(blasts);
-              blastTimer.current = window.setTimeout(() => {
-                setExplosions([]);
-                blastTimer.current = null;
-              }, 1100);
-            }
-          }
-        }
         onBoard(result.game.board);
       }
     } catch (caught) {
@@ -485,7 +516,11 @@ function GameTable({
         <NationTurn board={board} pending={pending} error={error} onAct={(command) => void act(command)} />
       )}
       <div className="play-layout">
-        <Board board={board} explosions={explosions} onCommand={(command) => void act(command)} />
+        {currentAI || lastAIAction ? <aside className="ai-activity" aria-live="polite" aria-atomic="true">
+          <strong>{currentAI ? `${currentAI.username ?? "The AI"} is taking a turn…` : "Latest AI action"}</strong>
+          {lastAIAction ? <p key={lastAIAction.id}>{lastAIAction.text}</p> : <p>AI actions appear one at a time so you can follow the board.</p>}
+        </aside> : null}
+        <Board board={board} explosions={explosions} moveTrails={moves} onCommand={(command) => void act(command)} />
         <PlayerPanel board={board} />
         <section className="card game-log" aria-labelledby="game-log-title">
           <h2 id="game-log-title">Game log</h2>

@@ -4,6 +4,18 @@ The AI is a deterministic, bounded heuristic search, implemented in `ai.ts` and
 connected to the authoritative legal choices and action dispatcher in `turn.ts`.
 It uses the same movement, convoy, battle and bond rules as a human player.
 
+Entry into a region with foreign units (including a friendly army's entry or
+change of posture) interrupts movement for combat decisions. The active country
+can offer peace, but every defending government may demand battle. Movement
+resumes only after those responses. Inactive countries cannot start battles
+against units that have simply stayed without changing posture. This follows
+the included Imperial rulebook, pages 8, 10 and 14; friendly posture itself does
+not require border permission when there are no defending units.
+
+Army positioning accounts for the home railway network. Friendly armies abroad
+carry a penalty because they earn no flags, block no factories and still cost
+upkeep; useful captures, defence and hostile occupation are preferred.
+
 It values the player's cash, projected bond scores, affordable interest payments,
 government control, factories, neutral territory and useful military positions.
 It compares short continuations of rondel actions so a maneuver is evaluated
@@ -24,5 +36,11 @@ Automatic play yields a Continue prompt if its work limit is reached. Tests cove
 strategic decisions, privacy, legal complete matches against the previous policy,
 and automatic turn handoffs at three- and six-player tables. Match results are
 regression evidence for these starting positions, not a rating against humans.
+
+Live games use `ai-runner.ts` instead of chaining automatic actions in an HTTP
+request. A PostgreSQL due time and row lock reserve each action, which commits
+and broadcasts independently, approximately 1.2 seconds apart. The runner also
+handles opening bonds, resumes after restart, and stops when a human must act.
+The synchronous engine remains available for simulations and rule tests.
 
 Run the suite with `npm test -w server -- src/rules/ai.test.ts`.

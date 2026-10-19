@@ -30,7 +30,11 @@ export function recordTurn(before: Board, after: Board, seat: number, command: T
       text = `${player}: ${own ? NATION_NAME[own.nation] : nation} fought ${enemy ? NATION_NAME[enemy.nation] : "the enemy"} in ${place(own?.region ?? "unknown")}.`;
       break;
     }
-    case "peace": text = `${player} chose no battle in ${place(before.turn?.battleRegions[0] ?? "unknown")}.`; break;
+    case "peace": {
+      const actorNation = before.turn?.attackerDone ? before.turn.battleNations[0] : before.turn?.nationId;
+      text = `${player}: ${actorNation ? NATION_NAME[actorNation] : nation} ${before.turn?.attackerDone ? "accepted coexistence" : "offered peace"} in ${place(before.turn?.battleRegions[0] ?? "unknown")}.`;
+      break;
+    }
     case "destroy": text = command.region ? `${player}: ${nation} destroyed the factory in ${place(command.region)}.` : `${player}: ${nation} left the factories intact.`; break;
     case "invest": {
       if (command.nationId === null || command.interest === null) {
@@ -43,6 +47,7 @@ export function recordTurn(before: Board, after: Board, seat: number, command: T
       break;
     }
     case "confirm": text = `${player} ended ${nation}'s turn.`; break;
+    case "confirm-interest": text = `${player} confirmed ${nation}'s Investor payouts.`; break;
     case "undo": text = `${player} undid ${nation}'s turn and returned to choosing its rondel move.`; break;
     case "continue": text = `${player} continued the game.`; break;
     case "treasury": text = `${player} transferred 1 million to ${nation}'s treasury.`; break;
@@ -65,15 +70,20 @@ export function recordTurn(before: Board, after: Board, seat: number, command: T
         details.push(`${NATION_NAME[flag.nation]} claimed ${place(flag.region)}.`);
       }
     }
-    if (before.turn?.phase !== "invest" && after.turn?.phase === "invest") {
+    if (command.action === "confirm-interest") {
       const holder = before.players.find((entry) => entry.investor);
       if (holder) details.push(`${playerName(before, holder.seat)} received the 2 million Investor bonus.`);
-      const current = after.nations.find((entry) => entry.id === nationId);
-      if (current?.rondelIndex === 4) {
+      const current = before.nations.find((entry) => entry.id === nationId);
+      if (current && !before.turn?.passedInvestor) {
+        const others = before.players.filter((entry) => entry.seat !== current.government)
+          .flatMap((entry) => entry.bonds).filter((bond) => bond.nation === nationId).reduce((sum, bond) => sum + bond.interest, 0);
+        const contribution = Math.max(0, others - current.treasury);
         for (const bondholder of before.players) {
-          const interest = bondholder.bonds.filter((bond) => bond.nation === nationId).reduce((sum, bond) => sum + bond.interest, 0);
+          const received = after.players.find((entry) => entry.seat === bondholder.seat)!.cash - bondholder.cash;
+          const interest = received - (bondholder.investor ? 2 : 0) + (bondholder.seat === current.government ? contribution : 0);
           if (interest) details.push(`${nation} paid ${playerName(before, bondholder.seat)} ${interest} million interest.`);
         }
+        if (contribution) details.push(`${playerName(before, current.government)} contributed ${contribution} million personally.`);
       }
     }
     const oldInvestor = before.players.find((entry) => entry.investor);
@@ -81,7 +91,7 @@ export function recordTurn(before: Board, after: Board, seat: number, command: T
     if (newInvestor && newInvestor.seat !== oldInvestor?.seat) details.push(`${playerName(after, newInvestor.seat)} received the Investor card.`);
     if (!before.finished && after.finished) details.push("The game is over.");
   }
-  appendLog(after, [text, ...details].join(" "));
+  appendLog(after, [text, ...details].join(" "), seat);
   if (command.action === "fight") {
     const entry = after.log?.at(-1);
     if (entry) entry.battle = before.turn?.phase === "fleet-battle" ? "sea" : "land";

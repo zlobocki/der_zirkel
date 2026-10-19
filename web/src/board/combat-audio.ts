@@ -1,64 +1,46 @@
-const SOUNDS = [
-  "/sounds/explosion_after_hit_1.mp3",
-  "/sounds/explosion_after_hit_2.mp3",
-  "/sounds/explosion_after_hit_3.mp3",
-  "/sounds/explosion_after_hit_4.mp3",
-  "/sounds/explosion_after_hit_5.mp3",
-  "/sounds/explosion_after_hit_6.mp3",
-  "/sounds/explosion_after_hit_7.mp3",
-  "/sounds/tank_cannon_1.mp3",
-  "/sounds/tank_cannon_2.mp3",
-  "/sounds/tank_cannon_3.mp3",
-];
+import { BATTLE_SOUNDS, randomTrack, type BattleKind } from "./audio-library";
 
 let context: AudioContext | null = null;
-let loading: Promise<AudioBuffer[]> | null = null;
+let source: AudioBufferSourceNode | null = null;
+let sequence = 0;
+const clips = new Map<string, Promise<AudioBuffer>>();
 
-function audioContext(): AudioContext {
-  if (!context) {
-    context = new AudioContext();
-  }
-  return context;
-}
-
-function loadClips(ctx: AudioContext): Promise<AudioBuffer[]> {
-  if (!loading) {
-    loading = Promise.all(
-      SOUNDS.map(async (url) => {
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`Missing combat sound ${url}`);
-        }
-        return ctx.decodeAudioData(await response.arrayBuffer());
-      }),
-    );
-  }
-  return loading;
-}
-
-/** Call from the combat click so later playback is allowed. */
 export function armCombatAudio(): void {
-  const ctx = audioContext();
-  if (ctx.state === "suspended") {
-    void ctx.resume();
-  }
-  void loadClips(ctx).catch(() => {
-    loading = null;
-  });
+  try {
+    context ??= new AudioContext();
+    if (context.state === "suspended") void context.resume().catch(() => {});
+  } catch { /* Audio is optional on devices without Web Audio. */ }
 }
 
-export async function playCombatSound(): Promise<void> {
-  const ctx = audioContext();
-  if (ctx.state === "suspended") {
-    await ctx.resume();
-  }
-  const clips = await loadClips(ctx);
-  const clip = clips[Math.floor(Math.random() * clips.length)];
-  if (!clip) {
-    return;
-  }
-  const source = ctx.createBufferSource();
-  source.buffer = clip;
-  source.connect(ctx.destination);
-  source.start();
+export async function playCombatSound(kind: BattleKind): Promise<void> {
+  const ctx = context;
+  if (!ctx || ctx.state !== "running") return;
+  const url = randomTrack(BATTLE_SOUNDS[kind]);
+  if (!url) return;
+  const request = ++sequence;
+  try {
+    let clip = clips.get(url);
+    if (!clip) {
+      clip = fetch(url).then(async (response) => {
+        if (!response.ok) throw new Error("Battle sound unavailable.");
+        return ctx.decodeAudioData(await response.arrayBuffer());
+      });
+      clips.set(url, clip);
+    }
+    const buffer = await clip;
+    if (request !== sequence) return;
+    source?.stop();
+    source?.disconnect();
+    source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start();
+  } catch { clips.delete(url); }
+}
+
+export function stopCombatSound(): void {
+  sequence += 1;
+  source?.stop();
+  source?.disconnect();
+  source = null;
 }

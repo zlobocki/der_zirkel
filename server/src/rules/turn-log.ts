@@ -82,4 +82,8 @@ export function recordTurn(before: Board, after: Board, seat: number, command: T
     if (!before.finished && after.finished) details.push("The game is over.");
   }
   appendLog(after, [text, ...details].join(" "));
+  if (command.action === "fight") {
+    const entry = after.log?.at(-1);
+    if (entry) entry.battle = before.turn?.phase === "fleet-battle" ? "sea" : "land";
+  }
 }

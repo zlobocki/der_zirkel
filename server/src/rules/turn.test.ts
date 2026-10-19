@@ -582,6 +582,22 @@ describe("nation turns", () => {
     expect(fought.units.filter((unit) => unit.region === "LR8" && unit.nation === "uk")).toHaveLength(1);
     expect(fought.units.filter((unit) => unit.nation === "fra")).toHaveLength(0);
     expect(fought.turn?.phase).not.toBe("army-battle");
+    expect(fought.log?.at(-1)?.battle).toBe("land");
+  });
+
+  it("marks a fleet battle for sea audio in the public action log", () => {
+    const started = game({ government: { ah: null, uk: 0, fra: 1 }, units: [
+      { id: "uk1", nation: "uk", kind: "fleet", region: "SR6", harbor: false, posture: "standing" },
+      { id: "fr1", nation: "fra", kind: "fleet", region: "SR6", harbor: false, posture: "standing" },
+    ] });
+    if (!started.turn) throw new Error("Missing turn");
+    started.turn.nationId = "uk";
+    started.turn.phase = "fleet-battle";
+    started.turn.battleRegions = ["SR6"];
+    const fought = ok(performTurn(started, 0, { action: "fight", ownId: "uk1", enemyId: "fr1" }));
+    expect(fought.log?.at(-1)?.battle).toBe("sea");
+    expect(fought.units).toHaveLength(0);
+    expect(started.log).toBeUndefined();
   });
 
   it("offers one fight button for each opposing nation in a region", () => {

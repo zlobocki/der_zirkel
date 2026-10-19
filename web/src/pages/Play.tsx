@@ -3,7 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { ApiError, fetchGame, grantBond, joinGame, takeTurn, type BoardView, type SeatedGame } from "../api";
 import { Board, NATIONS, PlayerPanel, unitMarkers, type Explosion } from "../board/Board";
 import { bondSrc } from "../board/bonds";
-import { armCombatAudio, playCombatSound } from "../board/combat-audio";
+import { armCombatAudio, playCombatSound, stopCombatSound } from "../board/combat-audio";
+import { GameMusic } from "../board/GameMusic";
 import { playTurnDing } from "../board/turn-audio";
 import { activePlayerKey } from "../board/turn-notification";
 import { Victory } from "../board/Victory";
@@ -414,6 +415,14 @@ function GameTable({
   const [explosions, setExplosions] = useState<Explosion[]>([]);
   const busy = useRef(false);
   const blastTimer = useRef<number | null>(null);
+  const lastSoundLog = useRef(board.log?.at(-1)?.id ?? 0);
+  useEffect(() => {
+    const fresh = (board.log ?? []).filter((entry) => entry.id > lastSoundLog.current);
+    lastSoundLog.current = board.log?.at(-1)?.id ?? 0;
+    const battle = [...fresh].reverse().find((entry) => entry.battle);
+    if (battle?.battle) void playCombatSound(battle.battle);
+  }, [board.log]);
+  useEffect(() => () => stopCombatSound(), []);
 
   async function act(command: Record<string, unknown>) {
     if (busy.current) {
@@ -455,7 +464,6 @@ function GameTable({
                 setExplosions([]);
                 blastTimer.current = null;
               }, 1100);
-              void playCombatSound();
             }
           }
         }
@@ -637,9 +645,10 @@ export function Play() {
 
   return (
     <>
-      <p className="actions">
+      <div className="actions game-toolbar">
         <Link to="/lobby">Lobby</Link>
-      </p>
+        <GameMusic key={game.id} board={game.board} />
+      </div>
       <h2>{game.name}</h2>
       <GameTable key={game.id} gameId={game.id} board={game.board} onBoard={(board) => {
         localRevision.current += 1;

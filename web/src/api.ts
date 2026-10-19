@@ -148,7 +148,7 @@ export function deleteGame(id: string): Promise<{ ok: boolean }> {
 }
 
 export type BoardView = {
-  log?: Array<{ id: number; text: string }>;
+  log?: Array<{ id: number; text: string; battle?: "land" | "sea" }>;
   nations: Array<{
     id: string;
     score: number;

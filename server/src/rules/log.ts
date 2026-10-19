@@ -1,4 +1,4 @@
-export type GameLogEntry = { id: number; text: string };
+export type GameLogEntry = { id: number; text: string; battle?: "land" | "sea" };
 
 export function appendLog(position: { log?: GameLogEntry[] }, text: string): void {
   const log = position.log ?? [];

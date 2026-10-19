@@ -1,6 +1,7 @@
 import { Link, Route, Routes, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { armTurnAudio } from "./board/turn-audio";
+import { armCombatAudio } from "./board/combat-audio";
 import { AuthProvider } from "./auth-context";
 import { Account } from "./pages/Account";
 import { Admin } from "./pages/Admin";
@@ -12,11 +13,12 @@ import { Register } from "./pages/Register";
 
 export function App() {
   useEffect(() => {
-    document.addEventListener("pointerdown", armTurnAudio, true);
-    document.addEventListener("keydown", armTurnAudio, true);
+    const armAudio = () => { armTurnAudio(); armCombatAudio(); };
+    document.addEventListener("pointerdown", armAudio, true);
+    document.addEventListener("keydown", armAudio, true);
     return () => {
-      document.removeEventListener("pointerdown", armTurnAudio, true);
-      document.removeEventListener("keydown", armTurnAudio, true);
+      document.removeEventListener("pointerdown", armAudio, true);
+      document.removeEventListener("keydown", armAudio, true);
     };
   }, []);
   return (

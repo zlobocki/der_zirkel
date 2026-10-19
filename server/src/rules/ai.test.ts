@@ -69,6 +69,62 @@ describe("strategic AI decisions", () => {
     expect(chooseAICommand(board).action).toBe("peace");
   });
 
+  it("captures a neutral country before occupying an unguarded rival factory", () => {
+    const board = table();
+    board.turn!.phase = "armies";
+    board.nations.forEach((nation) => { nation.score = 10; nation.treasury = 20; });
+    board.nations.find((nation) => nation.id === "ger")!.government = 1;
+    board.players[0].bonds = [{ nation: "ah", interest: 4, price: 9 }];
+    board.players[1].bonds = [{ nation: "ger", interest: 5, price: 12 }];
+    board.units = [{ id: "army", nation: "ah", kind: "army", region: "LR14", harbor: false, posture: "standing" }];
+    const command = chooseAICommand(board);
+    expect(command.action).toBe("move");
+    if (command.action !== "move") throw new Error("Expected neutral expansion");
+    expect(regions.get(command.region)?.home).toBeNull();
+  });
+
+  it("taxes an established economy instead of delaying collection to build more", () => {
+    const board = table();
+    const nation = board.nations[0];
+    nation.score = 10;
+    nation.treasury = 20;
+    nation.tax = "tax_10";
+    nation.rondel = "rondel_7";
+    nation.rondelIndex = 7;
+    board.flags = ["LR28", "LR30", "LR29", "SR3", "SR4", "SR5"].map(region => ({ region, nation: "ah" }));
+    board.units = [{ id: "army", nation: "ah", kind: "army", region: "LR14", harbor: false, posture: "standing" }];
+    expect(chooseAICommand(board)).toEqual({ action: "rondel", index: 0 });
+  });
+
+  it("still blocks a rival's factory when that stops an imminent winning taxation", () => {
+    const board = table();
+    board.turn!.phase = "armies";
+    board.nations.find((nation) => nation.id === "ger")!.government = 1;
+    board.nations.find((nation) => nation.id === "ger")!.score = 24;
+    board.players[0].bonds = [{ nation: "ah", interest: 4, price: 9 }];
+    board.players[1].bonds = [{ nation: "ger", interest: 5, price: 12 }];
+    board.flags = [...regions.values()].filter(region => !region.home).map(region => ({ region: region.id, nation: ["LR9", "LR25"].includes(region.id) ? "ger" : "ah" }));
+    board.units = [{ id: "army", nation: "ah", kind: "army", region: "LR14", harbor: false, posture: "standing" }];
+    expect(chooseAICommand(board)).toMatchObject({ action: "move", region: "LR12", posture: "hostile" });
+  });
+
+  it("spreads fleets into unclaimed seas instead of stacking in an already claimed sea", () => {
+    const board = table();
+    board.turn!.phase = "fleets";
+    board.flags = [{ region: "SR3", nation: "ah" }];
+    board.units = ["fleet1", "fleet2"].map(id => ({ id, nation: "ah", kind: "fleet", region: "SR3", harbor: false, posture: "standing" }));
+    for (let step = 0; step < 2; step += 1) {
+      const command = chooseAICommand(board);
+      expect(command.action).toBe("move");
+      if (command.action !== "move") throw new Error("Expected sea expansion");
+      expect(command.region).not.toBe("SR3");
+      const result = apply(board, command);
+      board.units = result.units;
+      board.turn = result.turn;
+    }
+    expect(new Set(board.units.map(unit => unit.region)).size).toBe(2);
+  });
+
   it("evaluates a defensive battle for the defending government's owner", () => {
     const board = table();
     board.turn!.nationId = "ita";

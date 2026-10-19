@@ -60,18 +60,23 @@ export function evaluateAIPosition(board: Board, seat: number, outlook = outlook
     if (!regions.get(id)?.home && new Set(units.map((unit) => unit.nation)).size === 1) flags.set(id, units[0].nation);
   }
   const revenues = new Map<NationId, number>();
-  const factories = new Map<NationId, number>();
+  const sustainableRevenues = new Map<NationId, number>();
   for (const nation of board.nations) {
     const open = nation.factories.filter((factory) => !(byRegion.get(factory.region) ?? []).some((unit) => unit.kind === "army" && unit.posture === "hostile" && unit.nation !== nation.id)).length;
-    factories.set(nation.id, open);
-    revenues.set(nation.id, Math.min(25, open * 2 + [...flags.values()].filter((id) => id === nation.id).length));
+    const territory = [...flags.values()].filter((id) => id === nation.id).length;
+    revenues.set(nation.id, Math.min(25, open * 2 + territory));
+    // Occupation can be reversed. Do not project a temporary blockade as a
+    // permanently destroyed factory throughout the rest of the game.
+    sustainableRevenues.set(nation.id, Math.min(25, (open + (nation.factories.length - open) * 0.65) * 2 + territory));
   }
   const { rounds, horizon } = outlook;
   const strengths = new Map<NationId, number>();
   for (const nation of board.nations) {
     const units = board.units.filter((unit) => unit.nation === nation.id);
     const targets = land.filter((region) => !region.home && flags.get(region.id) !== nation.id);
-    let strength = (factories.get(nation.id) ?? 0) * 3 + (revenues.get(nation.id) ?? 0) * 1.7 + Math.min(12, nation.treasury) * 0.16;
+    const territory = [...flags.values()].filter((id) => id === nation.id).length;
+    let strength = nation.factories.length * 3 + (revenues.get(nation.id) ?? 0) * 1.7
+      + territory * 0.9 + Math.min(12, nation.treasury) * 0.16;
     const stacks = new Map<string, number>();
     for (const unit of units) {
       const stack = stacks.get(unit.region) ?? 0;
@@ -98,7 +103,9 @@ export function evaluateAIPosition(board: Board, seat: number, outlook = outlook
         position = targets.length ? (8 - distance) * 0.35 : 0;
         // A friendly army abroad earns no flag and blocks no factory, yet still
         // costs upkeep and can be attacked. Prefer captures, defence or occupation.
-        if (regions.get(unit.region)?.home && regions.get(unit.region)?.home !== nation.id && unit.posture === "friendly") position -= 0.8;
+        if (regions.get(unit.region)?.home && regions.get(unit.region)?.home !== nation.id) {
+          position -= unit.posture === "friendly" ? 2 : 1.2;
+        }
         if (!regions.get(unit.region)?.home && flags.get(unit.region) === nation.id) position += 0.7;
         if (regions.get(unit.region)?.home === nation.id) {
           const threat = (regions.get(unit.region)?.links ?? []).some((id) => (byRegion.get(id) ?? []).some((other) => other.kind === "army" && other.nation !== nation.id));
@@ -126,11 +133,13 @@ export function evaluateAIPosition(board: Board, seat: number, outlook = outlook
       const rivalCredit = Math.max(0, ...competitors.map((other) => other.bonds.filter((bond) => bond.nation === nation.id).reduce((sum, bond) => sum + bond.price, 0)));
       const rivalInterest = Math.max(0, ...competitors.map((other) => other.bonds.filter((bond) => bond.nation === nation.id).reduce((sum, bond) => sum + bond.interest, 0)));
       const totalInterest = board.players.flatMap((entry) => entry.bonds).filter((bond) => bond.nation === nation.id).reduce((sum, bond) => sum + bond.interest, 0);
-      const projectedPower = Math.min(25, nation.score + rounds * Math.max(1, powerPointsForTax(revenues.get(nation.id) ?? 0)) * 0.7);
+      const projectedPower = Math.min(25, nation.score + rounds * Math.max(1, powerPointsForTax(sustainableRevenues.get(nation.id) ?? 0)) * 0.7);
       const multiplier = board.finished ? scoreFactor(nation.score) : scoreFactor(nation.score) * (1 - horizon) + scoreFactor(projectedPower) * horizon;
       const solvency = Math.min(1, (nation.treasury + (revenues.get(nation.id) ?? 0) * 0.4) / Math.max(1, totalInterest));
       value += interest * (multiplier + (board.finished ? 0 : rounds * 0.45 * solvency));
-      if (!board.finished) value += interest * nation.score * 0.025;
+      // Credit power between scoring thresholds too, so collecting tax now
+      // competes fairly with another turn of building or military expansion.
+      if (!board.finished) value += interest * nation.score * 0.12;
       if (!board.finished) {
         const influence = Math.max(-0.5, Math.min(1, (interest - rivalInterest * 0.5) / Math.max(1, totalInterest)));
         value += (strengths.get(nation.id) ?? 0) * influence * 0.8;
@@ -158,18 +167,30 @@ export function selectAICommand(board: Board, seat: number, rules: SearchRules):
   const outlook = outlookFor(view);
   const evaluate = (position: Board) => evaluateAIPosition(position, seat, outlook);
   function ranked(position: Board, commands: TurnCommand[]) {
-    const scored: Array<{ command: TurnCommand; next: Board; score: number }> = [];
+    const scored: Array<{ command: TurnCommand; next: Board; score: number; preference: number }> = [];
     for (const command of commands) {
       if (--budget < 0) break;
       const next = rules.preview(position, command);
       if (!next) continue;
-      let score = evaluate(next);
+      let preference = 0;
       // Passing and leaving units in place win ties over pointless movement.
-      if (command.action === "move" && position.units.find((unit) => unit.id === command.unitId)?.region !== command.region) score -= 0.04;
+      if (command.action === "move" && position.units.find((unit) => unit.id === command.unitId)?.region !== command.region) preference -= 0.04;
       if (command.action === "move" && command.posture === "friendly"
-        && position.units.find((unit) => unit.id === command.unitId)?.region !== command.region) score -= 0.4;
-      if (command.action === "rondel") score -= ((command.index - (position.nations.find((nation) => nation.id === position.turn?.nationId)?.rondelIndex ?? command.index) + 8) % 8) * 0.015;
-      scored.push({ command, next, score });
+        && position.units.find((unit) => unit.id === command.unitId)?.region !== command.region) preference -= 0.4;
+      if (command.action === "rondel") {
+        const nation = position.nations.find((nation) => nation.id === position.turn?.nationId);
+        preference -= ((command.index - (nation?.rondelIndex ?? command.index) + 8) % 8) * 0.015;
+        if (command.index === 0 && nation) {
+          const interest = (player: Board["players"][number]) => player.bonds.filter((bond) => bond.nation === nation.id).reduce((sum, bond) => sum + bond.interest, 0);
+          const held = position.players.filter((player) => player.seat === seat).reduce((sum, player) => sum + interest(player), 0);
+          const total = position.players.reduce((sum, player) => sum + interest(player), 0);
+          const gained = (next.nations.find((entry) => entry.id === nation.id)?.score ?? nation.score) - nation.score;
+          // Prefer cashing in a developed economy; scale by our stake rather
+          // than rushing a country whose scores mostly benefit someone else.
+          preference += gained * 0.6 * held / Math.max(1, total);
+        }
+      }
+      scored.push({ command, next, score: evaluate(next) + preference, preference });
     }
     return scored.sort((left, right) => right.score - left.score);
   }
@@ -180,18 +201,22 @@ export function selectAICommand(board: Board, seat: number, rules: SearchRules):
   const shortlist = initial.slice(0, 3);
   const maneuver = initial.find((entry) => entry.command.action === "rondel" && (entry.command.index === 3 || entry.command.index === 7));
   if (maneuver && !shortlist.includes(maneuver)) shortlist.push(maneuver);
+  const taxation = initial.find((entry) => entry.command.action === "rondel" && entry.command.index === 0);
+  if (taxation && !shortlist.includes(taxation)) shortlist.push(taxation);
   const rolloutBudget = Math.max(40, Math.floor(budget / shortlist.length));
   for (const entry of shortlist) {
     budget = rolloutBudget;
     let current = entry.next;
+    let preference = entry.preference;
     for (let depth = 0; depth < 16 && budget > 0; depth += 1) {
       if (current.finished || current.turn?.nationId !== view.turn?.nationId || current.turn?.phase === "confirm" || current.turn?.phase === "rondel" || rules.actor(current) !== seat) break;
       const choices = rules.choices(current, seat);
       const next = ranked(current, choices)[0];
       if (!next) break;
       current = next.next;
+      preference += next.preference;
     }
-    entry.score = evaluate(current);
+    entry.score = evaluate(current) + preference;
   }
   return shortlist.sort((left, right) => right.score - left.score)[0].command;
 }

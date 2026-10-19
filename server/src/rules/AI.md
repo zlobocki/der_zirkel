@@ -12,9 +12,17 @@ against units that have simply stayed without changing posture. This follows
 the included Imperial rulebook, pages 8, 10 and 14; friendly posture itself does
 not require border permission when there are no defending units.
 
-Army positioning accounts for the home railway network. Friendly armies abroad
-carry a penalty because they earn no flags, block no factories and still cost
-upkeep; useful captures, defence and hostile occupation are preferred.
+Army positioning accounts for the home railway network. Armies in foreign home
+provinces carry an opportunity cost, especially when friendly. Neutral land and
+sea flags receive extra value. Occupied factories retain their structural value,
+and long-term projections allow for recovery from a temporary blockade; an army
+entering a province is not valued like permanent factory destruction.
+
+Taxation is always considered in the rondel shortlist. Power points have value
+between scoring thresholds, and timely taxation receives a preference scaled by
+the player's bond stake. Movement preferences survive the maneuver continuation
+instead of being discarded at the end of the search. The AI still considers
+profitable battles and occupations, including blocking an imminent rival win.
 
 It values the player's cash, projected bond scores, affordable interest payments,
 government control, factories, neutral territory and useful military positions.

@@ -1,4 +1,4 @@
-import { powerPointsForTax, scoreFactor, type NationId } from "./constants.js";
+import { powerPointsForTax, rondelCost, scoreFactor, type NationId } from "./constants.js";
 import { regions } from "./map.js";
 import type { Board, TurnCommand } from "./turn.js";
 
@@ -6,6 +6,8 @@ type SearchRules = {
   choices: (board: Board, seat: number) => TurnCommand[];
   preview: (board: Board, command: TurnCommand) => Board | null;
   actor: (board: Board) => number | null;
+  taxation: (board: Board, nation: NationId) => number;
+  winner: (board: Board, seat: number) => boolean;
 };
 const startingCash: Record<number, number> = { 1: 40, 2: 40, 3: 28, 4: 22, 5: 18, 6: 15 };
 const land = [...regions.values()].filter((region) => region.kind === "land");
@@ -159,7 +161,52 @@ export function evaluateAIPosition(board: Board, seat: number, outlook = outlook
 
 export function selectAICommand(board: Board, seat: number, rules: SearchRules): TurnCommand {
   const view = aiView(board, seat);
-  const candidates = rules.choices(view, seat);
+  const available = rules.choices(view, seat);
+  // Forecast only the final taxation, using the actual payout, scoring and
+  // tie-break rules. Opponent cash remains the estimate from aiView.
+  function winningTaxation(position: Board, nationId: NationId, cost: number): boolean {
+    const nation = position.nations.find((entry) => entry.id === nationId);
+    const payer = position.players.find((player) => player.seat === seat);
+    if (!nation || nation.government !== seat || !payer || payer.cash < cost || !position.turn
+      || nation.score + powerPointsForTax(rules.taxation(position, nationId)) < 25) return false;
+    const future = structuredClone(position);
+    const treasury = future.nations.find((entry) => entry.id === nationId)!;
+    future.players.find((player) => player.seat === seat)!.cash -= cost;
+    // Put the forecast one free step before Taxation; the planned travel cost
+    // was paid above. This is a search position, never a change to the live game.
+    treasury.rondelIndex = 7;
+    treasury.rondel = "rondel_7";
+    future.turn!.nationId = nationId;
+    future.turn!.phase = "rondel";
+    const finish = rules.preview(future, { action: "rondel", index: 0 });
+    return Boolean(finish?.finished && rules.winner(finish, seat));
+  }
+  const active = view.nations.find((nation) => nation.id === view.turn?.nationId);
+  if (view.turn?.phase === "rondel" && active) {
+    const tax = available.find((command) => command.action === "rondel" && command.index === 0);
+    if (tax) {
+      const finish = rules.preview(view, tax);
+      if (finish?.finished && rules.winner(finish, seat)) return tax;
+    }
+    const investor = available.find((command) => command.action === "rondel" && command.index === 4);
+    if (investor) {
+      const stopped = rules.preview(view, investor);
+      const paid = stopped?.turn?.phase === "interest" ? rules.preview(stopped, { action: "confirm-interest" }) : null;
+      const cost = rondelCost(4, 0)!;
+      if (paid && winningTaxation(paid, active.id, cost)) return investor;
+    }
+  }
+  // Preserve the finishing fare even when buying bonds for another country's
+  // Investor action before our closing country's next turn.
+  const reserve = view.turn?.phase === "invest" ? Math.max(0, ...view.nations.map((nation) => {
+    const cost = rondelCost(4, 0)!;
+    return nation.rondelIndex === 4 && winningTaxation(view, nation.id, cost) ? cost : 0;
+  })) : 0;
+  const candidates = reserve > 0 ? available.filter((command) => {
+    if (command.action !== "invest" || command.nationId === null) return true;
+    const next = rules.preview(view, command);
+    return next !== null && (next.players.find((player) => player.seat === seat)?.cash ?? 0) >= reserve;
+  }) : available;
   if (!candidates.length) return { action: "confirm" };
   let budget = board.turn?.phase === "rondel" ? 650 : 200;
   // Keep the same horizon for all branches. Re-estimating it after each tax

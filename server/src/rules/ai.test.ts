@@ -31,6 +31,81 @@ function apply(board: Board, command: TurnCommand): Board {
 }
 
 describe("strategic AI decisions", () => {
+  function closingCountry(index: number, cash = 10): Board {
+    const board = table();
+    board.nations[0].score = 22;
+    board.nations[0].rondelIndex = index;
+    board.nations[0].rondel = `rondel_${index}`;
+    board.nations[0].treasury = 20;
+    board.players[0].cash = cash;
+    board.players[0].investor = true;
+    board.players[1].investor = false;
+    board.flags = ["LR28", "LR30", "SR3", "SR4"].map(region => ({ region, nation: "ah" }));
+    return board;
+  }
+
+  it.each([0, 1])("takes the Investor shortcut from rondel space %s when the next taxation can end the game", (index) => {
+    let board = closingCountry(index);
+    expect(chooseAICommand(board)).toEqual({ action: "rondel", index: 4 });
+    board = apply(board, chooseAICommand(board));
+    expect(board.turn?.phase).toBe("interest");
+    board = apply(board, { action: "confirm-interest" });
+    board = apply(board, { action: "invest", nationId: null, interest: null, replaceInterest: null });
+    // Simulate the other countries finishing their turns without changing the economy.
+    board.turn!.nationId = "ah";
+    board.turn!.phase = "rondel";
+    expect(chooseAICommand(board)).toEqual({ action: "rondel", index: 0 });
+    const finished = apply(board, chooseAICommand(board));
+    expect(finished.finished).toBe(true);
+    expect(scoreboard(finished).find(player => player.seat === 0)?.winner).toBe(true);
+  });
+
+  it("takes a paid winning taxation immediately when it can already be reached", () => {
+    const board = closingCountry(2);
+    expect(chooseAICommand(board)).toEqual({ action: "rondel", index: 0 });
+    const finished = apply(board, chooseAICommand(board));
+    expect(finished.players[0].cash).toBe(10 - 6 + 3);
+    expect(finished.finished).toBe(true);
+  });
+
+  it("keeps enough personal cash after investing to pay for the finishing jump to Taxation", () => {
+    let board = closingCountry(1, 0);
+    board.piles = { ah: [3], ita: [], fra: [], uk: [], ger: [], rus: [] };
+    board = apply(board, { action: "rondel", index: 4 });
+    board = apply(board, { action: "confirm-interest" });
+    expect(board.players[0].cash).toBe(6);
+    expect(chooseAICommand(board)).toEqual({ action: "invest", nationId: null, interest: null, replaceInterest: null });
+  });
+
+  it("respects the interest shortfall when the Investor shortcut is unaffordable", () => {
+    const board = closingCountry(0, 2);
+    board.nations[0].treasury = 0;
+    board.players[1].bonds = [{ nation: "ah", interest: 4, price: 9 }];
+    const choices = describeTurn(board, 0)!.choices.map(choice => choice.command);
+    expect(choices).not.toContainEqual({ action: "rondel", index: 4 });
+    const command = chooseAICommand(board);
+    expect(choices).toContainEqual(command);
+    expect(command).not.toEqual({ action: "rondel", index: 4 });
+    expect(apply(board, command)).not.toHaveProperty("error");
+  });
+
+  it("rechecks tax revenue after a loss of territory instead of pursuing an obsolete finish", () => {
+    const board = closingCountry(4);
+    board.flags = [];
+    expect(nationTaxation(board, "ah")).toBe(4);
+    expect(chooseAICommand(board)).not.toEqual({ action: "rondel", index: 0 });
+  });
+
+  it("does not use an opponent's hidden cash when choosing the finishing route", () => {
+    const board = closingCountry(0);
+    const before = JSON.stringify(board);
+    const command = chooseAICommand(board);
+    expect(command).toEqual({ action: "rondel", index: 4 });
+    expect(JSON.stringify(board)).toBe(before);
+    board.players[1].cash = 1000000;
+    expect(chooseAICommand(board)).toEqual(command);
+  });
+
   it("moves an army to claim territory rather than ending the maneuver", () => {
     const board = table();
     board.turn!.phase = "armies";

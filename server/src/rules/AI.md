@@ -24,6 +24,16 @@ the player's bond stake. Movement preferences survive the maneuver continuation
 instead of being discarded at the end of the search. The AI still considers
 profitable battles and occupations, including blocking an imminent rival win.
 
+When a controlled country can reach 25 power on its next taxation, the AI checks
+whether that ending would win for its player, using the normal score tie-breaks
+and the same opponent-cash estimates as the rest of the search. It takes an
+affordable winning taxation immediately. If taxation cannot finish now, it
+prioritises a legal Investor stop followed by the paid jump to Taxation, including
+the actual interest payout when checking affordability. Bond choices preserve
+the cash needed for that final jump. The route is reconsidered from the current
+board on each decision; government changes, lost flags and hostile occupations
+can invalidate it. No game rules or human movement choices are changed.
+
 It values the player's cash, projected bond scores, affordable interest payments,
 government control, factories, neutral territory and useful military positions.
 It compares short continuations of rondel actions so a maneuver is evaluated

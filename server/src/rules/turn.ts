@@ -1357,6 +1357,8 @@ export function chooseAICommand(board: Board): TurnCommand {
   // another government indefinitely, so retain the existing allow policy here.
   if (board.turn?.phase === "veto") return { action: "veto", block: false };
   return selectAICommand(board, seat, {
+    taxation: nationTaxation,
+    winner: (position, actor) => scoreboard(position).some((player) => player.seat === actor && player.winner),
     choices: (position, actor) => describeTurn(position, actor)?.choices.map((choice) => choice.command) ?? [],
     actor: actingSeat,
     preview: (position, command) => {
